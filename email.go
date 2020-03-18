@@ -1,12 +1,68 @@
-// Package email is designed to provide an "email interface for humans."
-// Designed to be robust and flexible, the email package aims to make sending email easy without getting in the way.
+/*
+	An E-Mail Interface for Nerds
+
+	How to Use
+
+		1. Open Connection (encrypted or not)
+		2. Establish SMTP Session (EHLO, STARTTLS, etc)
+		3. Send Messages
+		4. Close SMTP Session & Network Connection
+
+	Example
+
+		// BOILERPLATE
+
+			var E error
+
+			szHostName := "mailserver.com"
+			iAuth      := smtp.PlainAuth("", Username, Password, HOSTNAME)
+			pTLSCfg    := &tls.Config{ ... }
+
+		// [1 & 2]: ESTABLISH SESSION
+
+			switch( mode ) {
+
+			case "UNENCRYPTED":
+
+				// [1]: open an unencrypted network connection
+				iConn, E := net.Dial("tcp4", szHostName + ":25")
+
+				// [2]: establish SMTP session
+				SESS, E := NewSession(iConn, iAuth, szHostName, nil)
+
+			case "STARTTLS":
+
+				// [1]: open an unencrypted network connection
+				iConn, E := net.Dial("tcp4", szHostName + ":587")
+
+				// [2]: negotiate TLS in SMTP session (TLS config as last param)
+				SESS, E := NewSession(iConn, iAuth, szHostName, pTLSCfg)
+
+			case "FORCED TLS":
+
+				// [1]: open a TLS-secured network connection
+				iConn, E := tls.Dial("tcp4", szHostName + ":465", pTLSCfg)
+
+				// [2]: establish SMTP session (last param left as `nil` since TLS has already been established)
+				SESS, E := NewSession(iConn, iAuth, szHostName, nil)
+			}
+
+		// [3]: SEND MESSAGE(S)
+
+			MSG := email.Email{ ... }
+			E = SESS.Send(MSG)
+
+		// [4]: CLOSE SMTP SESSION WHEN FINISHED SENDING
+		// NOTE: this also closes the underlying network connection
+
+			E = SESS.Quit()
+*/
 package email
 
 import (
 	"bufio"
 	"bytes"
 	"crypto/rand"
-	"crypto/tls"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -16,9 +72,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
-	"net"
 	"net/mail"
-	"net/smtp"
 	"net/textproto"
 	"os"
 	"path/filepath"
@@ -32,13 +86,19 @@ const (
 	defaultContentType = "text/plain; charset=us-ascii" // defaultContentType is the default Content-Type according to RFC 2045, section 5.2
 )
 
-// ErrMissingBoundary is returned when there is no boundary given for a multipart entity
-var ErrMissingBoundary = errors.New("No boundary found for multipart entity")
-
-// ErrMissingContentType is returned when there is no "Content-Type" header for a MIME entity
+var ErrMissingToOrFrom    = errors.New("Must specify at least one From address and one To address")
+var ErrMissingBoundary    = errors.New("No boundary found for multipart entity")
 var ErrMissingContentType = errors.New("No Content-Type found for MIME entity")
+var ErrSTARTTLSNotOffered = errors.New("STARTTLS not offered by server")
 
-// Email is the type used for email messages
+// Attachment is a struct representing an email attachment.
+// Based on the mime/multipart.FileHeader struct, Attachment contains the name, MIMEHeader, and content of the attachment in question.
+type Attachment struct {
+	Filename string
+	Header   textproto.MIMEHeader
+	Content  []byte
+}
+
 type Email struct {
 	ReplyTo     []string
 	From        string
@@ -60,18 +120,18 @@ type part struct {
 	body   []byte
 }
 
-// NewEmail creates an Email, and returns the pointer to it.
+// Create and initialize an new message struct.
 func NewEmail() *Email {
 	return &Email{Headers: textproto.MIMEHeader{}}
 }
 
-// trimReader is a custom io.Reader that will trim any leading
+// A custom io.Reader that will trim any leading
 // whitespace, as this can cause email imports to fail.
 type trimReader struct {
 	rd io.Reader
 }
 
-// Read trims off any unicode whitespace from the originating reader
+// Trims off any unicode whitespace from the originating reader.
 func (tr trimReader) Read(buf []byte) (int, error) {
 	n, err := tr.rd.Read(buf)
 	t := bytes.TrimLeftFunc(buf[:n], unicode.IsSpace)
@@ -79,8 +139,7 @@ func (tr trimReader) Read(buf []byte) (int, error) {
 	return n, err
 }
 
-// NewEmailFromReader reads a stream of bytes from an io.Reader, r,
-// and returns an email struct containing the parsed data.
+// Reads a stream of bytes from an io.Reader, and returns an email struct containing the parsed data.
 // This function expects the data in RFC 5322 format.
 func NewEmailFromReader(r io.Reader) (*Email, error) {
 	e := NewEmail()
@@ -96,18 +155,47 @@ func NewEmailFromReader(r io.Reader) (*Email, error) {
 		switch {
 		case h == "Subject":
 			e.Subject = v[0]
+			subj, err := (&mime.WordDecoder{}).DecodeHeader(e.Subject)
+			if err == nil && len(subj) > 0 {
+				e.Subject = subj
+			}
 			delete(hdrs, h)
 		case h == "To":
-			e.To = v
+			for _, to := range v {
+				tt, err := (&mime.WordDecoder{}).DecodeHeader(to)
+				if err == nil {
+					e.To = append(e.To, tt)
+				} else {
+					e.To = append(e.To, to)
+				}
+			}
 			delete(hdrs, h)
 		case h == "Cc":
-			e.Cc = v
+			for _, cc := range v {
+				tcc, err := (&mime.WordDecoder{}).DecodeHeader(cc)
+				if err == nil {
+					e.Cc = append(e.Cc, tcc)
+				} else {
+					e.Cc = append(e.Cc, cc)
+				}
+			}
 			delete(hdrs, h)
 		case h == "Bcc":
-			e.Bcc = v
+			for _, bcc := range v {
+				tbcc, err := (&mime.WordDecoder{}).DecodeHeader(bcc)
+				if err == nil {
+					e.Bcc = append(e.Bcc, tbcc)
+				} else {
+					e.Bcc = append(e.Bcc, bcc)
+				}
+			}
 			delete(hdrs, h)
 		case h == "From":
 			e.From = v[0]
+			fr, err := (&mime.WordDecoder{}).DecodeHeader(e.From)
+			if err == nil && len(fr) > 0 {
+				e.From = fr
+			}
 			delete(hdrs, h)
 		}
 	}
@@ -169,6 +257,9 @@ func parseMIMEParts(hs textproto.MIMEHeader, b io.Reader) ([]*part, error) {
 				p.Header.Set("Content-Type", defaultContentType)
 			}
 			subct, _, err := mime.ParseMediaType(p.Header.Get("Content-Type"))
+			if err != nil {
+				return ps, err
+			}
 			if strings.HasPrefix(subct, "multipart/") {
 				sps, err := parseMIMEParts(p.Header, p)
 				if err != nil {
@@ -201,10 +292,9 @@ func parseMIMEParts(hs textproto.MIMEHeader, b io.Reader) ([]*part, error) {
 	return ps, nil
 }
 
-// Attach is used to attach content from an io.Reader to the email.
-// Required parameters include an io.Reader, the desired filename for the attachment, and the Content-Type
-// The function will return the created Attachment for reference, as well as nil for the error, if successful.
-func (e *Email) Attach(r io.Reader, filename string, c string) (a *Attachment, err error) {
+// Attaches content from an io.Reader to the email.
+// The function will return the created Attachment for reference.
+func (e *Email) Attach(r io.Reader, filename string, contentType string) (a *Attachment, err error) {
 	var buffer bytes.Buffer
 	if _, err = io.Copy(&buffer, r); err != nil {
 		return
@@ -214,11 +304,9 @@ func (e *Email) Attach(r io.Reader, filename string, c string) (a *Attachment, e
 		Header:   textproto.MIMEHeader{},
 		Content:  buffer.Bytes(),
 	}
-	// Get the Content-Type to be used in the MIMEHeader
-	if c != "" {
-		at.Header.Set("Content-Type", c)
+	if contentType != "" {
+		at.Header.Set("Content-Type", contentType)
 	} else {
-		// If the Content-Type is blank, set the Content-Type to "application/octet-stream"
 		at.Header.Set("Content-Type", "application/octet-stream")
 	}
 	at.Header.Set("Content-Disposition", fmt.Sprintf("attachment;\r\n filename=\"%s\"", filename))
@@ -228,10 +316,10 @@ func (e *Email) Attach(r io.Reader, filename string, c string) (a *Attachment, e
 	return at, nil
 }
 
-// AttachFile is used to attach content to the email.
+// Attaches content to the email via filesystem.
 // It attempts to open the file referenced by filename and, if successful, creates an Attachment.
 // This Attachment is then appended to the slice of Email.Attachments.
-// The function will then return the Attachment for reference, as well as nil for the error, if successful.
+// The function will then return the Attachment for reference.
 func (e *Email) AttachFile(filename string) (a *Attachment, err error) {
 	f, err := os.Open(filename)
 	if err != nil {
@@ -251,7 +339,7 @@ func (e *Email) AttachFile(filename string) (a *Attachment, err error) {
 // "e"'s fields To, Cc, From, Subject will be used unless they are present in
 // e.Headers. Unless set in e.Headers, "Date" will filled with the current time.
 func (e *Email) msgHeaders() (textproto.MIMEHeader, error) {
-	res := make(textproto.MIMEHeader, len(e.Headers)+4)
+	res := make(textproto.MIMEHeader, len(e.Headers)+6)
 	if e.Headers != nil {
 		for _, h := range []string{"Reply-To", "To", "Cc", "From", "Subject", "Date", "Message-Id", "MIME-Version"} {
 			if v, ok := e.Headers[h]; ok {
@@ -316,7 +404,7 @@ func writeMessage(buff io.Writer, msg []byte, multipart bool, mediaType string, 
 	return qp.Close()
 }
 
-// Bytes converts the Email object to a []byte representation, including all needed MIMEHeaders, boundaries, etc.
+// Converts the Email object to a []byte representation--including all needed MIMEHeaders, boundaries, etc.
 func (e *Email) Bytes() ([]byte, error) {
 	// TODO: better guess buffer size
 	buff := bytes.NewBuffer(make([]byte, 0, 4096))
@@ -405,247 +493,6 @@ func (e *Email) Bytes() ([]byte, error) {
 	return buff.Bytes(), nil
 }
 
-// Send an email using the given host and SMTP auth (optional), returns any error thrown by smtp.SendMail
-// This function merges the To, Cc, and Bcc fields and calls the smtp.SendMail function using the Email.Bytes() output as the message
-func (e *Email) Send(addr string, a smtp.Auth) error {
-
-	// Merge the To, Cc, and Bcc fields
-	to, err := e.ParsedAddresses()
-	if err != nil {
-		return err
-	}
-
-	// Check to make sure there is at least one recipient and one "From" address
-	if e.From == "" || len(to) == 0 {
-		return errors.New("Must specify at least one From address and one To address")
-	}
-	sender, err := e.parseSender()
-	if err != nil {
-		return err
-	}
-	raw, err := e.Bytes()
-	if err != nil {
-		return err
-	}
-	return smtp.SendMail(addr, a, sender, to, raw)
-}
-
-// Select and parse an SMTP envelope sender address.  Choose Email.Sender if set, or fallback to Email.From.
-func (e *Email) parseSender() (string, error) {
-	if e.Sender != "" {
-		sender, err := mail.ParseAddress(e.Sender)
-		if err != nil {
-			return "", err
-		}
-		return sender.Address, nil
-	} else {
-		from, err := mail.ParseAddress(e.From)
-		if err != nil {
-			return "", err
-		}
-		return from.Address, nil
-	}
-}
-
-// Returns slice of To, Cc, and Bcc fields, each parsed with mail.ParseAddress()
-func (e *Email) ParsedAddresses() ([]string, error) {
-
-	// Merge the To, Cc, and Bcc fields
-	to := make([]string, 0, len(e.To)+len(e.Cc)+len(e.Bcc))
-	to = append(append(append(to, e.To...), e.Cc...), e.Bcc...)
-	for i := 0; i < len(to); i++ {
-		addr, err := mail.ParseAddress(to[i])
-		if err != nil {
-			return []string{}, err
-		}
-		to[i] = addr.Address
-	}
-
-	return to, nil
-}
-
-/*
-SendWithConn sends an email with an existing connection.
-This is helpful if you need to customize connection parameters (timeouts and such),
-or use a custom Conn interface.
-
-	pSTARTTLSCfg provided: Performs STARTTLS negotiation
-	   pSTARTTLSCfg = nil: Skips STARTTLS negotiation
-		 	                 (for already-encrypted connections, or unencrypted ones)
-
-Typical STARTTLS upgrade:
-
-   HOSTNAME := "mailserver.com"
-   AUTH     := smtp.PlainAuth("", Username, Password, HOSTNAME)
-   pTLSCfg  := &tls.Config{ ... }
-
-   // NOTE: Returns an *unencrypted* net.Conn
-   pConn, _ := net.Dial("tcp4", HOSTNAME + ":587")
-
-   // Provide a *tls.Config to upgrade the connection via STARTTLS negotiation
-   pMsg.Email.SendWithConn(pConn, AUTH, HOSTNAME, pTLSCfg)
-
-Or, provide a nil *tls.Config to send unencrypted:
-
-   pMsg.Email.SendWithConn(pConn, AUTH, HOSTNAME, nil)
-
-Or, begin with a TLS/SSL connection in the first place:
-
-   // NOTE: Returns an *encrypted* tls.Conn
-   pConn, _ := tls.Dial("tcp4", HOSTNAME + ":465", pTLSCfg)
-
-   // No need to provied *tls.Config to upgrade the connection, since it's already encrypted
-   pMsg.Email.SendWithConn(pConn, AUTH, HOSTNAME, nil)
-
-*/
-func (e *Email) SendWithConn(
-	iConn         net.Conn,
-	iAuth         smtp.Auth,
-	serverName    string,
-	pSTARTTLSCfg  *tls.Config,
-) (err error) {
-
-	// Merge the To, Cc, and Bcc fields
-	to, err := e.ParsedAddresses()
-	if err != nil { return }
-
-	// Check to make sure there is at least one recipient and one "From" address
-	if e.From == "" || len(to) == 0 {
-		return errors.New("Must specify at least one From address and one To address")
-	}
-
-	sender, err := e.parseSender()
-	if err != nil { return }
-
-	raw, err := e.Bytes()
-	if err != nil { return }
-
-	c, err := smtp.NewClient(iConn, serverName)
-	if err != nil { return }
-	defer c.Close()
-
-	err = c.Hello("localhost")
-	if err != nil { return }
-
-	// NEGOTIATE STARTTLS IF REQUESTED & AVAILABLE
-	if pSTARTTLSCfg != nil {
-		if ok, _ := c.Extension("STARTTLS"); ok {
-			err = c.StartTLS(pSTARTTLSCfg)
-			if err != nil { return }
-		}
-		// TODO: Perhaps have optional error if STARTTLS is requested by
-		//       the client, but not provided by the server
-	}
-
-	if iAuth != nil {
-		if ok, _ := c.Extension("AUTH"); ok {
-			err = c.Auth(iAuth)
-			if err != nil { return }
-		}
-	}
-
-	err = c.Mail(sender)
-	if err != nil { return }
-
-	for _, szRecipient := range to {
-		err = c.Rcpt(szRecipient)
-		if err != nil { return }
-	}
-
-	w, err := c.Data()
-	if err != nil { return }
-
-	_, err = w.Write(raw)
-	if err != nil { return }
-
-	err = w.Close()
-	if err != nil { return }
-
-	return c.Quit()
-}
-
-// SendWithTLS sends an email with an optional TLS config.
-// This is helpful if you need to connect to a host that is used an untrusted
-// certificate.
-func (e *Email) SendWithTLS(addr string, a smtp.Auth, t *tls.Config) error {
-
-	// Merge the To, Cc, and Bcc fields
-	to, err := e.ParsedAddresses()
-	if err != nil {
-		return err
-	}
-
-	// Check to make sure there is at least one recipient and one "From" address
-	if e.From == "" || len(to) == 0 {
-		return errors.New("Must specify at least one From address and one To address")
-	}
-	sender, err := e.parseSender()
-	if err != nil {
-		return err
-	}
-	raw, err := e.Bytes()
-	if err != nil {
-		return err
-	}
-
-	conn, err := tls.Dial("tcp", addr, t)
-	if err != nil {
-		return err
-	}
-
-	c, err := smtp.NewClient(conn, t.ServerName)
-	if err != nil {
-		return err
-	}
-	defer c.Close()
-	if err = c.Hello("localhost"); err != nil {
-		return err
-	}
-	// Use TLS if available
-	if ok, _ := c.Extension("STARTTLS"); ok {
-		if err = c.StartTLS(t); err != nil {
-			return err
-		}
-	}
-
-	if a != nil {
-		if ok, _ := c.Extension("AUTH"); ok {
-			if err = c.Auth(a); err != nil {
-				return err
-			}
-		}
-	}
-	if err = c.Mail(sender); err != nil {
-		return err
-	}
-	for _, addr := range to {
-		if err = c.Rcpt(addr); err != nil {
-			return err
-		}
-	}
-	w, err := c.Data()
-	if err != nil {
-		return err
-	}
-	_, err = w.Write(raw)
-	if err != nil {
-		return err
-	}
-	err = w.Close()
-	if err != nil {
-		return err
-	}
-	return c.Quit()
-}
-
-// Attachment is a struct representing an email attachment.
-// Based on the mime/multipart.FileHeader struct, Attachment contains the name, MIMEHeader, and content of the attachment in question
-type Attachment struct {
-	Filename string
-	Header   textproto.MIMEHeader
-	Content  []byte
-}
-
 // base64Wrap encodes the attachment content, and wraps it according to RFC 2045 standards (every 76 chars)
 // The output is then written to the specified io.Writer
 func base64Wrap(w io.Writer, b []byte) {
@@ -714,4 +561,47 @@ func generateMessageID() (string, error) {
 	}
 	msgid := fmt.Sprintf("<%d.%d.%d@%s>", t, pid, rint, h)
 	return msgid, nil
+}
+
+// Select and parse an SMTP envelope sender address.
+// Choose Email.Sender if set, or fallback to Email.From.
+func (e *Email) ParseSender() (sender *mail.Address, E error) {
+
+	if e.Sender != "" {
+		sender, E = mail.ParseAddress(e.Sender)
+	} else {
+		sender, E = mail.ParseAddress(e.From)
+	}
+
+	return
+}
+
+// Returns slice of To, Cc, and Bcc fields, each parsed with mail.ParseAddress().
+func (e *Email) ParseToFromAddrs() ([]*mail.Address, error) {
+
+	// Check to make sure there is at least one "from" address
+	if e.From == "" {
+		return nil, ErrMissingToOrFrom
+	}
+
+	// Merge the To, Cc, and Bcc fields
+	sAddr := make([]*mail.Address, 0, len(e.To)+len(e.Cc)+len(e.Bcc))
+
+	for _, addr_list := range [][]string{e.To, e.Cc, e.Bcc} {
+		for _, addr_txt := range addr_list {
+
+			A, E := mail.ParseAddress(addr_txt)
+			if E != nil {
+				return nil, E
+			}
+			sAddr = append(sAddr, A)
+		}
+	}
+
+	// Check to make sure there is at least one recipient
+	if len(sAddr) == 0 {
+		return nil, ErrMissingToOrFrom
+	}
+
+	return sAddr, nil
 }
