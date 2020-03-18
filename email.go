@@ -28,7 +28,7 @@
 				iConn, E := net.Dial("tcp4", szHostName + ":25")
 
 				// [2]: establish SMTP session
-				SESS, E := NewSession(iConn, iAuth, szHostName, nil)
+				SESS, E := email.NewSession(iConn, iAuth, szHostName, nil)
 
 			case "STARTTLS":
 
@@ -36,7 +36,7 @@
 				iConn, E := net.Dial("tcp4", szHostName + ":587")
 
 				// [2]: negotiate TLS in SMTP session (TLS config as last param)
-				SESS, E := NewSession(iConn, iAuth, szHostName, pTLSCfg)
+				SESS, E := email.NewSession(iConn, iAuth, szHostName, pTLSCfg)
 
 			case "FORCED TLS":
 
@@ -44,7 +44,7 @@
 				iConn, E := tls.Dial("tcp4", szHostName + ":465", pTLSCfg)
 
 				// [2]: establish SMTP session (last param left as `nil` since TLS has already been established)
-				SESS, E := NewSession(iConn, iAuth, szHostName, nil)
+				SESS, E := email.NewSession(iConn, iAuth, szHostName, nil)
 			}
 
 		// [3]: SEND MESSAGE(S)
