@@ -14,9 +14,9 @@
 
 			var E error
 
-			szHostName := "mailserver.com"
-			iAuth      := smtp.PlainAuth("", Username, Password, HOSTNAME)
-			pTLSCfg    := &tls.Config{ ... }
+			smtpServer := "mailserver.com"
+			iAuth      := email.LoginAuth(Username, Password)
+			pTLSCfg    := email.TLSConfig(smtpServer)
 
 		// [1 & 2]: ESTABLISH SESSION
 
@@ -25,26 +25,26 @@
 			case "starttls":
 
 				// [1]: open an unencrypted network connection
-				iConn, E := net.Dial("tcp4", szHostName + ":587")
+				iConn, E := net.Dial("tcp4", smtpServer + ":587")
 
 				// [2]: negotiate TLS in SMTP session (TLS config as last param)
-				SESS, E := email.NewSession(iConn, iAuth, szHostName, pTLSCfg)
+				SESS, E := email.NewSession(iConn, iAuth, smtpServer, pTLSCfg)
 
 			case "forcetls":
 
 				// [1]: open a TLS-secured network connection
-				iConn, E := tls.Dial("tcp4", szHostName + ":465", pTLSCfg)
+				iConn, E := tls.Dial("tcp4", smtpServer + ":465", pTLSCfg)
 
 				// [2]: establish SMTP session (last param left as `nil` since TLS has already been established)
-				SESS, E := email.NewSession(iConn, iAuth, szHostName, nil)
+				SESS, E := email.NewSession(iConn, iAuth, smtpServer, nil)
 
 			case "UNENCRYPTED":
 
 				// [1]: open an unencrypted network connection
-				iConn, E := net.Dial("tcp4", szHostName + ":25")
+				iConn, E := net.Dial("tcp4", smtpServer + ":25")
 
 				// [2]: establish SMTP session
-				SESS, E := email.NewSession(iConn, iAuth, szHostName, nil)
+				SESS, E := email.NewSession(iConn, iAuth, smtpServer, nil)
 			}
 
 		// [3]: SEND MESSAGE(S)
