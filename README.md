@@ -1,6 +1,6 @@
 # email.v2
 
-[![GoDoc](https://godoc.org/github.com/BourgeoisBear/email,v2?status.svg)](https://godoc.org/github.com/BourgeoisBear/email,v2)
+[![GoDoc](https://godoc.org/github.com/BourgeoisBear/email.v2?status.svg)](https://godoc.org/github.com/BourgeoisBear/email.v2)
 
 Fork of https://github.com/jordan-wright/email, a robust and flexible email library for Go.
 
