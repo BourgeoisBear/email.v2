@@ -73,8 +73,6 @@ func NewSession(
 		return
 	}
 
-	// TODO: RENAME PACKAGE
-	// TODO: UNIT TESTS
 	// TODO: LOGGING?
 
 	// NEGOTIATE STARTTLS IF REQUESTED

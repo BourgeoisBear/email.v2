@@ -22,15 +22,7 @@
 
 			switch( mode ) {
 
-			case "UNENCRYPTED":
-
-				// [1]: open an unencrypted network connection
-				iConn, E := net.Dial("tcp4", szHostName + ":25")
-
-				// [2]: establish SMTP session
-				SESS, E := email.NewSession(iConn, iAuth, szHostName, nil)
-
-			case "STARTTLS":
+			case "starttls":
 
 				// [1]: open an unencrypted network connection
 				iConn, E := net.Dial("tcp4", szHostName + ":587")
@@ -38,12 +30,20 @@
 				// [2]: negotiate TLS in SMTP session (TLS config as last param)
 				SESS, E := email.NewSession(iConn, iAuth, szHostName, pTLSCfg)
 
-			case "FORCED TLS":
+			case "forcetls":
 
 				// [1]: open a TLS-secured network connection
 				iConn, E := tls.Dial("tcp4", szHostName + ":465", pTLSCfg)
 
 				// [2]: establish SMTP session (last param left as `nil` since TLS has already been established)
+				SESS, E := email.NewSession(iConn, iAuth, szHostName, nil)
+
+			case "UNENCRYPTED":
+
+				// [1]: open an unencrypted network connection
+				iConn, E := net.Dial("tcp4", szHostName + ":25")
+
+				// [2]: establish SMTP session
 				SESS, E := email.NewSession(iConn, iAuth, szHostName, nil)
 			}
 
@@ -565,12 +565,18 @@ func generateMessageID() (string, error) {
 
 // Select and parse an SMTP envelope sender address.
 // Choose Email.Sender if set, or fallback to Email.From.
-func (e *Email) ParseSender() (sender *mail.Address, E error) {
+func (MSG *Email) ParseSender() (sender mail.Address, E error) {
 
-	if e.Sender != "" {
-		sender, E = mail.ParseAddress(e.Sender)
+	var tmp *mail.Address
+
+	if len(MSG.Sender) > 0 {
+		tmp, E = mail.ParseAddress(MSG.Sender)
 	} else {
-		sender, E = mail.ParseAddress(e.From)
+		tmp, E = mail.ParseAddress(MSG.From)
+	}
+
+	if (E == nil) && (tmp != nil) {
+		sender = *tmp
 	}
 
 	return

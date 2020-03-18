@@ -3,15 +3,21 @@ package email
 import (
 	"testing"
 
+	"fmt"
+	"encoding/json"
+
 	"bytes"
-	"crypto/rand"
 	"io"
 	"io/ioutil"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
+
+	"time"
+	"crypto/rand"
+	"crypto/tls"
+	"net"
 	"net/mail"
-	"net/smtp"
 	"net/textproto"
 )
 
@@ -411,16 +417,112 @@ d-printable decoding.</div>
 	}
 }
 
-func ExampleGmail() {
-	e := NewEmail()
-	e.From = "Jordan Wright <test@gmail.com>"
-	e.To = []string{"test@example.com"}
-	e.Bcc = []string{"test_bcc@example.com"}
-	e.Cc = []string{"test_cc@example.com"}
-	e.Subject = "Awesome Subject"
-	e.Text = []byte("Text Body is, of course, supported!\n")
-	e.HTML = []byte("<h1>Fancy Html is supported, too!</h1>\n")
-	e.Send("smtp.gmail.com:587", smtp.PlainAuth("", e.From, "password123", "smtp.gmail.com"))
+func TestSend(t *testing.T) {
+
+	type SMTP_SERVER struct {
+		Host string
+		Port uint16
+		User string
+		Pass string
+		From string
+		Mode string
+	}
+
+	type TEST_SETTINGS struct {
+		To       string
+		Subject  string
+		Body     string
+		Accounts map[string]SMTP_SERVER
+	}
+
+	var E error
+
+	defer func() {
+		if E != nil {
+			t.Error(E)
+		}
+	}()
+
+	// LOAD SETTINGS
+	bsSettings, E := ioutil.ReadFile("./email_test_settings.json")
+	if E != nil { return }
+
+	var CFG TEST_SETTINGS
+	E = json.Unmarshal(bsSettings, &CFG)
+	if E != nil { return }
+
+	// TEST MESSAGE
+	MSG := Email{
+		Headers: textproto.MIMEHeader{},
+		To:      []string{CFG.To},
+		Text:    []byte(CFG.Body),
+	}
+
+	// TRY SENDING ON EACH GIVEN ACCOUNT
+	for LBL, ACCT := range CFG.Accounts {
+
+		var SESS  EstablishedSession
+		var E2    error
+		var iConn net.Conn
+
+		t.Log("TestSend: " + LBL)
+
+		defer func() {
+			if E2 != nil {
+				t.Error(LBL + ": " + E2.Error())
+			}
+		}()
+
+		iAuth := LoginAuth(ACCT.User, ACCT.Pass)
+		szHostPort := fmt.Sprintf("%s:%d", ACCT.Host, ACCT.Port)
+
+		TIMEOUT_DURATION := time.Second * 10
+		pDialer := &net.Dialer{Timeout: TIMEOUT_DURATION}
+
+		if ACCT.Mode == "forcetls" {
+
+			iConn, E2 = tls.DialWithDialer(pDialer, "tcp4", szHostPort, TLSConfig(ACCT.Host))
+			if E2 != nil { continue }
+
+      // 10 Second Comms Timeout
+      E2 = iConn.SetDeadline(time.Now().Add(TIMEOUT_DURATION))
+      if E2 != nil { continue }
+
+			SESS, E2 = NewSession(iConn, iAuth, ACCT.Host, nil)
+
+		}	else {
+
+			iConn, E2 = pDialer.Dial("tcp4", szHostPort)
+			if E2 != nil { continue }
+
+      // 10 Second Comms Timeout
+      E2 = iConn.SetDeadline(time.Now().Add(TIMEOUT_DURATION))
+      if E2 != nil { continue }
+
+			if ACCT.Mode == "starttls" {
+				SESS, E2 = NewSession(iConn, iAuth, ACCT.Host, TLSConfig(ACCT.Host))
+			} else {
+				SESS, E2 = NewSession(iConn, iAuth, ACCT.Host, nil)
+			}
+		}
+
+		if E2 != nil { continue }
+
+		MSG.From = ACCT.From
+
+		// TEST SENDING MULTIPLE MESSAGES INSIDE SINGLE SMTP SESSION
+		for i := 1; i <= 2; i++ {
+
+			MSG.Subject = fmt.Sprintf("%s - %d", CFG.Subject, i)
+			E2 = SESS.Send(MSG)
+			if E2 != nil { break }
+		}
+		if E2 != nil { continue }
+
+		t.Log("TestSend: " + LBL + " - SUCCESS!")
+
+		SESS.Quit()
+	}
 }
 
 func ExampleAttach() {
@@ -586,9 +688,18 @@ func TestParseSender(t *testing.T) {
 	}
 
 	for i, testcase := range cases {
-		got, err := testcase.e.parseSender()
-		if got != testcase.want || (err != nil) != testcase.haserr {
-			t.Errorf(`%d: got %s != want %s or error "%t" != "%t"`, i+1, got, testcase.want, err != nil, testcase.haserr)
+
+		got, err := testcase.e.ParseSender()
+
+		if (got.Address != testcase.want) || ((err != nil) != testcase.haserr) {
+			t.Errorf(
+				`%d: got(%s) != want(%s) or error "%t" != "%t"`,
+				i+1,
+				got.Address,
+				testcase.want,
+				err != nil,
+				testcase.haserr,
+			)
 		}
 	}
 }
