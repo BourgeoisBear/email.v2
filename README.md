@@ -7,11 +7,12 @@ Fork of https://github.com/jordan-wright/email, a robust and flexible email libr
 ### Reasons for Fork
 
 * ripped out connection pooling (sending via long-term connections to SMTP servers has not been reliable)
-* condensed multiple Send... methods into NewSession() & Send() to
+* condensed multiple Send... methods into NewClient() & Send() to
 	* provide a more generic way of establishing unauthenticated, SSL, and STARTTLS connections
 	* send multiple messages from within a single established SMTP session
 	* make direct use of outside net.Conn interfaces, so as to set dial and I/O deadlines
 * added `LoginAuth` authentication interface for use with Office 365
+* added `TextprotoLogged` for full logging of SMTP traffic
 
 ### Features
 

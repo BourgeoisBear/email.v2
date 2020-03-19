@@ -1,62 +1,3 @@
-/*
-	An E-Mail Interface for Nerds
-
-	How to Use
-
-		1. Open Connection (encrypted or not)
-		2. Establish SMTP Session (EHLO, STARTTLS, etc)
-		3. Send Messages
-		4. Close SMTP Session & Network Connection
-
-	Example
-
-		// BOILERPLATE
-
-			var E error
-
-			smtpServer := "mailserver.com"
-			iAuth      := email.LoginAuth(Username, Password)
-			pTLSCfg    := email.TLSConfig(smtpServer)
-
-		// [1 & 2]: ESTABLISH SESSION
-
-			switch( mode ) {
-
-			case "starttls":
-
-				// [1]: open an unencrypted network connection
-				iConn, E := net.Dial("tcp4", smtpServer + ":587")
-
-				// [2]: negotiate TLS in SMTP session (TLS config as last param)
-				SESS, E := email.NewSession(iConn, iAuth, smtpServer, pTLSCfg)
-
-			case "forcetls":
-
-				// [1]: open a TLS-secured network connection
-				iConn, E := tls.Dial("tcp4", smtpServer + ":465", pTLSCfg)
-
-				// [2]: establish SMTP session (last param left as `nil` since TLS has already been established)
-				SESS, E := email.NewSession(iConn, iAuth, smtpServer, nil)
-
-			case "UNENCRYPTED":
-
-				// [1]: open an unencrypted network connection
-				iConn, E := net.Dial("tcp4", smtpServer + ":25")
-
-				// [2]: establish SMTP session
-				SESS, E := email.NewSession(iConn, iAuth, smtpServer, nil)
-			}
-
-		// [3]: SEND MESSAGE(S)
-
-			MSG := email.Email{ ... }
-			E = SESS.Send(MSG)
-
-		// [4]: CLOSE SMTP SESSION WHEN FINISHED SENDING
-		// NOTE: this also closes the underlying network connection
-
-			E = SESS.Quit()
-*/
 package email
 
 import (
@@ -86,10 +27,12 @@ const (
 	defaultContentType = "text/plain; charset=us-ascii" // defaultContentType is the default Content-Type according to RFC 2045, section 5.2
 )
 
-var ErrMissingToOrFrom    = errors.New("Must specify at least one From address and one To address")
-var ErrMissingBoundary    = errors.New("No boundary found for multipart entity")
-var ErrMissingContentType = errors.New("No Content-Type found for MIME entity")
-var ErrSTARTTLSNotOffered = errors.New("STARTTLS not offered by server")
+var (
+	ErrMissingToOrFrom    = errors.New("Must specify at least one From address and one To address")
+	ErrMissingBoundary    = errors.New("No boundary found for multipart entity")
+	ErrMissingContentType = errors.New("No Content-Type found for MIME entity")
+	ErrSTARTTLSNotOffered = errors.New("STARTTLS not offered by server")
+)
 
 // Attachment is a struct representing an email attachment.
 // Based on the mime/multipart.FileHeader struct, Attachment contains the name, MIMEHeader, and content of the attachment in question.
@@ -294,9 +237,9 @@ func parseMIMEParts(hs textproto.MIMEHeader, b io.Reader) ([]*part, error) {
 
 // Attaches content from an io.Reader to the email.
 // The function will return the created Attachment for reference.
-func (e *Email) Attach(r io.Reader, filename string, contentType string) (a *Attachment, err error) {
+func (e *Email) Attach(r io.Reader, filename string, contentType string) (a *Attachment, E error) {
 	var buffer bytes.Buffer
-	if _, err = io.Copy(&buffer, r); err != nil {
+	if _, E = io.Copy(&buffer, r); E != nil {
 		return
 	}
 	at := &Attachment{
@@ -320,9 +263,9 @@ func (e *Email) Attach(r io.Reader, filename string, contentType string) (a *Att
 // It attempts to open the file referenced by filename and, if successful, creates an Attachment.
 // This Attachment is then appended to the slice of Email.Attachments.
 // The function will then return the Attachment for reference.
-func (e *Email) AttachFile(filename string) (a *Attachment, err error) {
-	f, err := os.Open(filename)
-	if err != nil {
+func (e *Email) AttachFile(filename string) (a *Attachment, E error) {
+	f, E := os.Open(filename)
+	if E != nil {
 		return
 	}
 	defer f.Close()

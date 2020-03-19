@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"fmt"
+	"log"
+	"os"
 	"encoding/json"
 
 	"bytes"
@@ -19,6 +21,8 @@ import (
 	"net"
 	"net/mail"
 	"net/textproto"
+
+	"github.com/mattn/go-isatty"
 )
 
 func prepareEmail() *Email {
@@ -461,9 +465,8 @@ func TestSend(t *testing.T) {
 	// TRY SENDING ON EACH GIVEN ACCOUNT
 	for LBL, ACCT := range CFG.Accounts {
 
-		var SESS  EstablishedSession
+		var SESS  *Client
 		var E2    error
-		var iConn net.Conn
 
 		t.Log("TestSend: " + LBL)
 
@@ -473,11 +476,22 @@ func TestSend(t *testing.T) {
 			}
 		}()
 
+		// todo: per-msg deadlines
+		// todo: test logging for starttls
+
 		iAuth := LoginAuth(ACCT.User, ACCT.Pass)
 		szHostPort := fmt.Sprintf("%s:%d", ACCT.Host, ACCT.Port)
 
 		TIMEOUT_DURATION := time.Second * 10
-		pDialer := &net.Dialer{Timeout: TIMEOUT_DURATION}
+		pDialer := &net.Dialer{
+			Timeout:   TIMEOUT_DURATION,
+			KeepAlive: -1, // disabled
+		}
+
+		var iConn net.Conn
+
+		pLog := log.New(os.Stdout, "", log.Ltime | log.Lmicroseconds)
+		fnTextproto := TextprotoLogged(pLog, isatty.IsTerminal(os.Stdout.Fd()))
 
 		if ACCT.Mode == "forcetls" {
 
@@ -488,7 +502,7 @@ func TestSend(t *testing.T) {
       E2 = iConn.SetDeadline(time.Now().Add(TIMEOUT_DURATION))
       if E2 != nil { continue }
 
-			SESS, E2 = NewSession(iConn, iAuth, ACCT.Host, nil)
+			SESS, E2 = NewClient(iConn, iAuth, ACCT.Host, nil, fnTextproto)
 
 		}	else {
 
@@ -500,9 +514,9 @@ func TestSend(t *testing.T) {
       if E2 != nil { continue }
 
 			if ACCT.Mode == "starttls" {
-				SESS, E2 = NewSession(iConn, iAuth, ACCT.Host, TLSConfig(ACCT.Host))
+				SESS, E2 = NewClient(iConn, iAuth, ACCT.Host, TLSConfig(ACCT.Host), fnTextproto)
 			} else {
-				SESS, E2 = NewSession(iConn, iAuth, ACCT.Host, nil)
+				SESS, E2 = NewClient(iConn, iAuth, ACCT.Host, nil, fnTextproto)
 			}
 		}
 
@@ -511,7 +525,7 @@ func TestSend(t *testing.T) {
 		MSG.From = ACCT.From
 
 		// TEST SENDING MULTIPLE MESSAGES INSIDE SINGLE SMTP SESSION
-		for i := 1; i <= 2; i++ {
+		for i := 1; i < 2; i++ {
 
 			MSG.Subject = fmt.Sprintf("%s - %d", CFG.Subject, i)
 			E2 = SESS.Send(MSG)
