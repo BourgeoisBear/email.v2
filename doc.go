@@ -1,6 +1,6 @@
 
 /*
-An E-Mail Interface for Nerds
+An SMTP Client for Nerds
 
 How to Use
 
