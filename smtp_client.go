@@ -334,7 +334,7 @@ func TLSConfig(hostName string) *tls.Config {
 }
 
 // Send an e-mail using the established SMTP session.
-func (c *Client) Send(e Email) (E error) {
+func (c *Client) Send(e *Email) (E error) {
 
 	// PARSE/VERIFY ADDRESSES
 	to, E := e.ParseToFromAddrs()

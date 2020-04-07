@@ -456,7 +456,7 @@ func TestSend(t *testing.T) {
 	if E != nil { return }
 
 	// TEST MESSAGE
-	MSG := Email{
+	MSG := &Email{
 		Headers: textproto.MIMEHeader{},
 		To:      []string{CFG.To},
 		Text:    []byte(CFG.Body),
