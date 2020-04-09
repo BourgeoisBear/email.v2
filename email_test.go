@@ -4,8 +4,6 @@ import (
 	"testing"
 
 	"fmt"
-	"log"
-	"os"
 	"encoding/json"
 
 	"bytes"
@@ -15,14 +13,9 @@ import (
 	"mime/multipart"
 	"mime/quotedprintable"
 
-	"time"
 	"crypto/rand"
-	"crypto/tls"
-	"net"
 	"net/mail"
 	"net/textproto"
-
-	"github.com/mattn/go-isatty"
 )
 
 func prepareEmail() *Email {
@@ -423,20 +416,16 @@ d-printable decoding.</div>
 
 func TestSend(t *testing.T) {
 
-	type SMTP_SERVER struct {
-		Host string
-		Port uint16
-		User string
-		Pass string
+	type TestClientCfg struct {
+		SMTPClientConfig
 		From string
-		Mode string
 	}
 
 	type TEST_SETTINGS struct {
 		To       string
 		Subject  string
 		Body     string
-		Accounts map[string]SMTP_SERVER
+		Accounts map[string]TestClientCfg
 	}
 
 	var E error
@@ -456,7 +445,7 @@ func TestSend(t *testing.T) {
 	if E != nil { return }
 
 	// TEST MESSAGE
-	MSG := &Email{
+	MSG := Email{
 		Headers: textproto.MIMEHeader{},
 		To:      []string{CFG.To},
 		Text:    []byte(CFG.Body),
@@ -465,77 +454,21 @@ func TestSend(t *testing.T) {
 	// TRY SENDING ON EACH GIVEN ACCOUNT
 	for LBL, ACCT := range CFG.Accounts {
 
-		var SESS  *Client
-		var E2    error
-
 		t.Log("TestSend: " + LBL)
 
-		defer func() {
-			if E2 != nil {
-				t.Error(LBL + ": " + E2.Error())
-			}
-		}()
-
-		// todo: per-msg deadlines
-		// todo: test logging for starttls
-
-		iAuth := LoginAuth(ACCT.User, ACCT.Pass)
-		szHostPort := fmt.Sprintf("%s:%d", ACCT.Host, ACCT.Port)
-
-		TIMEOUT_DURATION := time.Second * 10
-		pDialer := &net.Dialer{
-			Timeout:   TIMEOUT_DURATION,
-			KeepAlive: -1, // disabled
-		}
-
-		var iConn net.Conn
-
-		pLog := log.New(os.Stdout, "", log.Ltime | log.Lmicroseconds)
-		fnTextproto := TextprotoLogged(pLog, isatty.IsTerminal(os.Stdout.Fd()))
-
-		if ACCT.Mode == "forcetls" {
-
-			iConn, E2 = tls.DialWithDialer(pDialer, "tcp4", szHostPort, TLSConfig(ACCT.Host))
-			if E2 != nil { continue }
-
-      // 10 Second Comms Timeout
-      E2 = iConn.SetDeadline(time.Now().Add(TIMEOUT_DURATION))
-      if E2 != nil { continue }
-
-			SESS, E2 = NewClient(iConn, iAuth, ACCT.Host, nil, fnTextproto)
-
-		}	else {
-
-			iConn, E2 = pDialer.Dial("tcp4", szHostPort)
-			if E2 != nil { continue }
-
-      // 10 Second Comms Timeout
-      E2 = iConn.SetDeadline(time.Now().Add(TIMEOUT_DURATION))
-      if E2 != nil { continue }
-
-			if ACCT.Mode == "starttls" {
-				SESS, E2 = NewClient(iConn, iAuth, ACCT.Host, TLSConfig(ACCT.Host), fnTextproto)
-			} else {
-				SESS, E2 = NewClient(iConn, iAuth, ACCT.Host, nil, fnTextproto)
-			}
-		}
-
-		if E2 != nil { continue }
-
 		MSG.From = ACCT.From
+		MSG.Subject = fmt.Sprintf("%s - %d", CFG.Subject, 1)
+
+		MSG2 := MSG
+		MSG2.Subject = fmt.Sprintf("%s - %d", CFG.Subject, 2)
 
 		// TEST SENDING MULTIPLE MESSAGES INSIDE SINGLE SMTP SESSION
-		for i := 1; i < 2; i++ {
-
-			MSG.Subject = fmt.Sprintf("%s - %d", CFG.Subject, i)
-			E2 = SESS.Send(MSG)
-			if E2 != nil { break }
-		}
-		if E2 != nil { continue }
+		ACCT.SMTPLog = "-"
+		ACCT.TimeoutMsec = 7000
+		E = ACCT.SimpleSend(&MSG, &MSG2)
+		if E != nil { return }
 
 		t.Log("TestSend: " + LBL + " - SUCCESS!")
-
-		SESS.Quit()
 	}
 }
 

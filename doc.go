@@ -1,61 +1,31 @@
 
 /*
-An SMTP Client for Nerds
 
-How to Use
+Yet another SMTP client!
 
-	1. Open Connection (encrypted or not)
-	2. Establish SMTP Session (EHLO, STARTTLS, etc)
-	3. Send Messages
-	4. Close SMTP Session & Network Connection
+Simple Usage
 
-Example
+	oCfg := SMTPClientConfig{
+	  Server:   "mx.test.com",
+	  Port:     587,
+	  Username: "test@test.com",
+	  Password: "...",
+	  Mode:     ModeSTARTTLS,
+	  // SMTPLog:  "-",  // note: uncomment to log SMTP session to STDOUT
+	}
 
-	// BOILERPLATE
+	oEmail := NewEmail()
+	oEmail.From    = "test@test.com"
+	oEmail.To      = []string{"test_receiver@eggplant.pro"}
+	oEmail.Subject = "Test Message"
+	oEmail.Text    = []byte("Whoomp there it is!")
 
-		var E error
+	E := oCfg.SimpleSend(oEmail)
+	if E != nil { return E }
 
-		smtpServer := "mailserver.com"
-		iAuth      := email.LoginAuth(Username, Password)
-		pTLSCfg    := email.TLSConfig(smtpServer)
+Advanced Usage
 
-	// [1 & 2]: ESTABLISH SESSION
+	See implementation of SMTPClientConfig.SimpleSend()
 
-		switch( mode ) {
-
-		case "starttls":
-
-			// [1]: open an unencrypted network connection
-			iConn, E := net.Dial("tcp4", smtpServer + ":587")
-
-			// [2]: negotiate TLS in SMTP session
-			SESS, E := email.NewClient(iConn, iAuth, smtpServer, pTLSCfg, nil)
-
-		case "forcetls":
-
-			// [1]: open a TLS-secured network connection
-			iConn, E := tls.Dial("tcp4", smtpServer + ":465", pTLSCfg)
-
-			// [2]: establish SMTP session
-			SESS, E := email.NewClient(iConn, iAuth, smtpServer, nil, nil)
-
-		case "UNENCRYPTED":
-
-			// [1]: open an unencrypted network connection
-			iConn, E := net.Dial("tcp4", smtpServer + ":25")
-
-			// [2]: establish SMTP session
-			SESS, E := email.NewClient(iConn, iAuth, smtpServer, nil, nil)
-		}
-
-	// [3]: SEND MESSAGE(S)
-
-		MSG := email.Email{ ... }
-		E = SESS.Send(MSG)
-
-	// [4]: CLOSE SMTP SESSION WHEN FINISHED SENDING
-	// NOTE: this also closes the underlying network connection
-
-		E = SESS.Quit()
 */
 package email

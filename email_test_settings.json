@@ -4,28 +4,28 @@
 	"Body":    "Text Body is, of course, supported!\n",
 	"Accounts": {
 		"O365": {
-			"Host": "smtp.office365.com",
-			"Port": 587,
-			"User": "user name here",
-			"Pass": "acct pw here",
-			"From": "from e-mail addr here",
-			"Mode": "starttls"
+			"Server":   "smtp.office365.com",
+			"Port":     587,
+			"Username": "user name here",
+			"Password": "acct pw here",
+			"From":     "from e-mail addr here",
+			"Mode":     "STARTTLS"
 		},
 		"GMAIL": {
-			"Host": "smtp.gmail.com",
-			"Port": 587,
-			"User": "user name here",
-			"Pass": "acct pw here",
-			"From": "from e-mail addr here",
-			"Mode": "starttls"
+			"Server":   "smtp.gmail.com",
+			"Port":     587,
+			"Username": "user name here",
+			"Password": "acct pw here",
+			"From":     "from e-mail addr here",
+			"Mode":     "STARTTLS"
 		},
 		"CUSTOM": {
-			"Host": "your smtp server here",
-			"Port": 465,
-			"User": "user name here",
-			"Pass": "acct pw here",
-			"From": "from e-mail addr here",
-			"Mode": "forcetls"
+			"Server":   "your smtp server here",
+			"Port":     465,
+			"Username": "user name here",
+			"Password": "acct pw here",
+			"From":     "from e-mail addr here",
+			"Mode":     "FORCETLS"
 		}
 	}
 }
