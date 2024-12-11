@@ -145,93 +145,115 @@ func NewEmailFromReader(r io.Reader) (*Email, error) {
 	e.Headers = hdrs
 	body := tp.R
 	// Recursively parse the MIME parts
-	ps, err := parseMIMEParts(e.Headers, body)
+	ps, err := ParseMIMEParts(body, e.Headers)
 	if err != nil {
 		return e, err
 	}
 	for _, p := range ps {
-		if ct := p.header.Get("Content-Type"); ct == "" {
+		if ct := p.Header.Get("Content-Type"); ct == "" {
 			return e, ErrMissingContentType
 		}
-		ct, _, err := mime.ParseMediaType(p.header.Get("Content-Type"))
+		ct, _, err := mime.ParseMediaType(p.Header.Get("Content-Type"))
 		if err != nil {
 			return e, err
 		}
 		switch {
 		case ct == "text/plain":
-			e.Text = p.body
+			e.Text = p.Body.Bytes()
 		case ct == "text/html":
-			e.HTML = p.body
+			e.HTML = p.Body.Bytes()
 		}
 	}
 	return e, nil
 }
 
-// parseMIMEParts will recursively walk a MIME entity and return a []mime.Part containing
-// each (flattened) mime.Part found.
-// It is important to note that there are no limits to the number of recursions, so be
-// careful when parsing unknown MIME structures!
-func parseMIMEParts(hs textproto.MIMEHeader, b io.Reader) ([]*part, error) {
-	var ps []*part
+// Part is a copyable representation of a multipart.Part
+type Part struct {
+	Header textproto.MIMEHeader
+	Body   bytes.Buffer
+}
+
+func decodePart(iRdr io.Reader, mHdr textproto.MIMEHeader) (Part, error) {
+	if mHdr.Get("Content-Transfer-Encoding") == "base64" {
+		iRdr = base64.NewDecoder(base64.StdEncoding, iRdr)
+	}
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, iRdr); err != nil {
+		return Part{}, err
+	}
+	return Part{Body: buf, Header: mHdr}, nil
+}
+
+/*
+parseMIMEParts will recursively walk a MIME entity and return a []mime.Part
+containing each (flattened) mime.Part found. It is important to note that there
+are no limits to the number of recursions, so be careful when parsing unknown
+MIME structures!
+*/
+func ParseMIMEParts(iRdr io.Reader, mHdr textproto.MIMEHeader) ([]Part, error) {
+
 	// If no content type is given, set it to the default
-	if _, ok := hs["Content-Type"]; !ok {
-		hs.Set("Content-Type", defaultContentType)
+	if _, ok := mHdr["Content-Type"]; !ok {
+		mHdr.Set("Content-Type", defaultContentType)
 	}
-	ct, params, err := mime.ParseMediaType(hs.Get("Content-Type"))
+
+	ct, params, err := mime.ParseMediaType(mHdr.Get("Content-Type"))
 	if err != nil {
-		return ps, err
+		return nil, err
 	}
+
 	// If it's a multipart email, recursively parse the parts
+	var ps []Part
 	if strings.HasPrefix(ct, "multipart/") {
+
 		if _, ok := params["boundary"]; !ok {
 			return ps, ErrMissingBoundary
 		}
-		mr := multipart.NewReader(b, params["boundary"])
+		mr := multipart.NewReader(iRdr, params["boundary"])
+
 		for {
-			var buf bytes.Buffer
-			p, err := mr.NextPart()
+			pPart, err := mr.NextPart()
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
 				return ps, err
 			}
-			if _, ok := p.Header["Content-Type"]; !ok {
-				p.Header.Set("Content-Type", defaultContentType)
+			if _, ok := pPart.Header["Content-Type"]; !ok {
+				pPart.Header.Set("Content-Type", defaultContentType)
 			}
-			subct, _, err := mime.ParseMediaType(p.Header.Get("Content-Type"))
+			subct, _, err := mime.ParseMediaType(pPart.Header.Get("Content-Type"))
 			if err != nil {
 				return ps, err
 			}
+
 			if strings.HasPrefix(subct, "multipart/") {
-				sps, err := parseMIMEParts(p.Header, p)
+
+				sps, err := ParseMIMEParts(pPart, pPart.Header)
 				if err != nil {
 					return ps, err
 				}
 				ps = append(ps, sps...)
+
 			} else {
-				var reader io.Reader
-				reader = p
-				const cte = "Content-Transfer-Encoding"
-				if p.Header.Get(cte) == "base64" {
-					reader = base64.NewDecoder(base64.StdEncoding, reader)
+
+				part, eP := decodePart(pPart, pPart.Header)
+				if eP != nil {
+					return ps, eP
 				}
-				// Otherwise, just append the part to the list
-				// Copy the part data into the buffer
-				if _, err := io.Copy(&buf, reader); err != nil {
-					return ps, err
-				}
-				ps = append(ps, &part{body: buf.Bytes(), header: p.Header})
+				ps = append(ps, part)
 			}
 		}
+
 	} else {
-		// If it is not a multipart email, parse the body content as a single "part"
-		var buf bytes.Buffer
-		if _, err := io.Copy(&buf, b); err != nil {
-			return ps, err
+
+		part, eP := decodePart(iRdr, mHdr)
+		if eP != nil {
+			return ps, eP
 		}
-		ps = append(ps, &part{body: buf.Bytes(), header: hs})
+		ps = append(ps, part)
 	}
+
 	return ps, nil
 }
 
