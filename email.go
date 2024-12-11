@@ -57,12 +57,6 @@ type Email struct {
 	ReadReceipt []string
 }
 
-// part is a copyable representation of a multipart.Part
-type part struct {
-	header textproto.MIMEHeader
-	body   []byte
-}
-
 // Create and initialize an new message struct.
 func NewEmail() *Email {
 	return &Email{Headers: textproto.MIMEHeader{}}
