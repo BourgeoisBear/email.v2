@@ -1,6 +1,8 @@
 package email
 
 import (
+	"os"
+	"strings"
 	"testing"
 
 	"encoding/json"
@@ -8,7 +10,6 @@ import (
 
 	"bytes"
 	"io"
-	"io/ioutil"
 	"mime"
 	"mime/multipart"
 	"mime/quotedprintable"
@@ -18,50 +19,78 @@ import (
 	"net/textproto"
 )
 
-func prepareEmail() *Email {
-	e := NewEmail()
-	e.From = "Jordan Wright <test@example.com>"
-	e.To = []string{"test@example.com"}
-	e.Bcc = []string{"test_bcc@example.com"}
-	e.Cc = []string{"test_cc@example.com"}
-	e.Subject = "Awesome Subject"
-	return e
+type testClientCfg struct {
+	SMTPClientConfig
+	From string
 }
 
-func basicTests(t *testing.T, e *Email) *mail.Message {
-	raw, err := e.Bytes()
+type testSettings struct {
+	To       []string
+	ToCc     []string
+	ToBcc    []string
+	Subject  string
+	Body     string
+	Accounts map[string]testClientCfg
+}
+
+func loadSettings() (testSettings, error) {
+	var ret testSettings
+	bsSettings, err := os.ReadFile("./email_test_settings.json")
 	if err != nil {
-		t.Fatal("Failed to render message: ", e)
+		return ret, err
+	}
+	err = json.Unmarshal(bsSettings, &ret)
+	if err != nil {
+		return ret, err
+	}
+	return ret, nil
+}
+
+func dummyEmail() *Email {
+	pMsg := NewEmail()
+	pMsg.From = "test@test.com"
+	pMsg.To = []string{"recipient@test.com", "recipient2@test.com"}
+	pMsg.Cc = []string{"cc1@test.com", "cc2@test.com"}
+	pMsg.Bcc = []string{"bcc1@test.com", "bcc2@test.com"}
+	pMsg.Subject = "Test Subject"
+	return pMsg
+}
+
+func basicTests(t *testing.T, msgIn *Email) *mail.Message {
+
+	raw, err := msgIn.Bytes()
+	if err != nil {
+		t.Fatal("Failed to render message: ", msgIn)
 	}
 
-	msg, err := mail.ReadMessage(bytes.NewBuffer(raw))
+	msgOut, err := mail.ReadMessage(bytes.NewBuffer(raw))
 	if err != nil {
 		t.Fatal("Could not parse rendered message: ", err)
 	}
 
 	expectedHeaders := map[string]string{
-		"To":      "test@example.com",
-		"From":    "Jordan Wright <test@example.com>",
-		"Cc":      "test_cc@example.com",
-		"Subject": "Awesome Subject",
+		"From":    msgIn.From,
+		"To":      strings.Join(msgIn.To, ", "),
+		"Cc":      strings.Join(msgIn.Cc, ", "),
+		"Subject": msgIn.Subject,
 	}
 
 	for header, expected := range expectedHeaders {
-		if val := msg.Header.Get(header); val != expected {
+		if val := msgOut.Header.Get(header); val != expected {
 			t.Errorf("Wrong value for message header %s: %v != %v", header, expected, val)
 		}
 	}
-	return msg
+	return msgOut
 }
 
 func TestEmailText(t *testing.T) {
-	e := prepareEmail()
-	e.Text = []byte("Text Body is, of course, supported!\n")
 
-	msg := basicTests(t, e)
+	msgIn := dummyEmail()
+	msgIn.Text = []byte("Text Body is, of course, supported!\n")
+	msgOut := basicTests(t, msgIn)
 
 	// Were the right headers set?
-	ct := msg.Header.Get("Content-type")
+	ct := msgOut.Header.Get("Content-type")
 	mt, _, err := mime.ParseMediaType(ct)
 	if err != nil {
 		t.Fatal("Content-type header is invalid: ", ct)
@@ -71,13 +100,13 @@ func TestEmailText(t *testing.T) {
 }
 
 func TestEmailHTML(t *testing.T) {
-	e := prepareEmail()
-	e.HTML = []byte("<h1>Fancy Html is supported, too!</h1>\n")
 
-	msg := basicTests(t, e)
+	msgIn := dummyEmail()
+	msgIn.HTML = []byte("<h1>Fancy Html is supported, too!</h1>\n")
+	msgOut := basicTests(t, msgIn)
 
 	// Were the right headers set?
-	ct := msg.Header.Get("Content-type")
+	ct := msgOut.Header.Get("Content-type")
 	mt, _, err := mime.ParseMediaType(ct)
 	if err != nil {
 		t.Fatalf("Content-type header is invalid: %#v", ct)
@@ -87,17 +116,23 @@ func TestEmailHTML(t *testing.T) {
 }
 
 func TestEmailTextAttachment(t *testing.T) {
-	e := prepareEmail()
-	e.Text = []byte("Text Body is, of course, supported!\n")
-	_, err := e.Attach(bytes.NewBufferString("Rad attachment"), "rad.txt", "text/plain; charset=utf-8")
+
+	msgIn := dummyEmail()
+	msgIn.Text = []byte("Text Body is, of course, supported!\n")
+
+	_, err := msgIn.Attach(
+		bytes.NewBufferString("Rad attachment"),
+		"rad.txt",
+		"text/plain; charset=utf-8",
+	)
 	if err != nil {
 		t.Fatal("Could not add an attachment to the message: ", err)
 	}
 
-	msg := basicTests(t, e)
+	msgOut := basicTests(t, msgIn)
 
 	// Were the right headers set?
-	ct := msg.Header.Get("Content-type")
+	ct := msgOut.Header.Get("Content-type")
 	mt, params, err := mime.ParseMediaType(ct)
 	if err != nil {
 		t.Fatal("Content-type header is invalid: ", ct)
@@ -113,7 +148,7 @@ func TestEmailTextAttachment(t *testing.T) {
 	}
 
 	// Is the generated message parsable?
-	mixed := multipart.NewReader(msg.Body, params["boundary"])
+	mixed := multipart.NewReader(msgOut.Body, params["boundary"])
 
 	text, err := mixed.NextPart()
 	if err != nil {
@@ -127,7 +162,7 @@ func TestEmailTextAttachment(t *testing.T) {
 	} else if mt != "text/plain" {
 		t.Fatal("Message missing text/plain")
 	}
-	plainText, err := ioutil.ReadAll(text)
+	plainText, err := io.ReadAll(text)
 	if err != nil {
 		t.Fatal("Could not read plain text component of message: ", err)
 	}
@@ -147,18 +182,24 @@ func TestEmailTextAttachment(t *testing.T) {
 }
 
 func TestEmailTextHtmlAttachment(t *testing.T) {
-	e := prepareEmail()
-	e.Text = []byte("Text Body is, of course, supported!\n")
-	e.HTML = []byte("<h1>Fancy Html is supported, too!</h1>\n")
-	_, err := e.Attach(bytes.NewBufferString("Rad attachment"), "rad.txt", "text/plain; charset=utf-8")
+
+	msgIn := dummyEmail()
+	msgIn.Text = []byte("Text Body is, of course, supported!\n")
+	msgIn.HTML = []byte("<h1>Fancy Html is supported, too!</h1>\n")
+
+	_, err := msgIn.Attach(
+		bytes.NewBufferString("Rad attachment"),
+		"rad.txt",
+		"text/plain; charset=utf-8",
+	)
 	if err != nil {
 		t.Fatal("Could not add an attachment to the message: ", err)
 	}
 
-	msg := basicTests(t, e)
+	msgOut := basicTests(t, msgIn)
 
 	// Were the right headers set?
-	ct := msg.Header.Get("Content-type")
+	ct := msgOut.Header.Get("Content-type")
 	mt, params, err := mime.ParseMediaType(ct)
 	if err != nil {
 		t.Fatal("Content-type header is invalid: ", ct)
@@ -174,7 +215,7 @@ func TestEmailTextHtmlAttachment(t *testing.T) {
 	}
 
 	// Is the generated message parsable?
-	mixed := multipart.NewReader(msg.Body, params["boundary"])
+	mixed := multipart.NewReader(msgOut.Body, params["boundary"])
 
 	text, err := mixed.NextPart()
 	if err != nil {
@@ -193,7 +234,7 @@ func TestEmailTextHtmlAttachment(t *testing.T) {
 	if err != nil {
 		t.Fatal("Could not read plain text component of message: ", err)
 	}
-	plainText, err := ioutil.ReadAll(part)
+	plainText, err := io.ReadAll(part)
 	if err != nil {
 		t.Fatal("Could not read plain text component of message: ", err)
 	}
@@ -213,15 +254,21 @@ func TestEmailTextHtmlAttachment(t *testing.T) {
 }
 
 func TestEmailAttachment(t *testing.T) {
-	e := prepareEmail()
-	_, err := e.Attach(bytes.NewBufferString("Rad attachment"), "rad.txt", "text/plain; charset=utf-8")
+
+	msgIn := dummyEmail()
+
+	_, err := msgIn.Attach(
+		bytes.NewBufferString("Rad attachment"),
+		"rad.txt",
+		"text/plain; charset=utf-8",
+	)
 	if err != nil {
 		t.Fatal("Could not add an attachment to the message: ", err)
 	}
-	msg := basicTests(t, e)
+	msgOut := basicTests(t, msgIn)
 
 	// Were the right headers set?
-	ct := msg.Header.Get("Content-type")
+	ct := msgOut.Header.Get("Content-type")
 	mt, params, err := mime.ParseMediaType(ct)
 	if err != nil {
 		t.Fatal("Content-type header is invalid: ", ct)
@@ -237,7 +284,7 @@ func TestEmailAttachment(t *testing.T) {
 	}
 
 	// Is the generated message parsable?
-	mixed := multipart.NewReader(msg.Body, params["boundary"])
+	mixed := multipart.NewReader(msgOut.Body, params["boundary"])
 
 	// Check attachments.
 	_, err = mixed.NextPart()
@@ -251,15 +298,15 @@ func TestEmailAttachment(t *testing.T) {
 }
 
 func TestEmailFromReader(t *testing.T) {
-	ex := &Email{
-		Subject: "Test Subject",
-		To:      []string{"Jordan Wright <jmwright798@gmail.com>"},
+
+	msgExpect := &Email{
 		From:    "Jordan Wright <jmwright798@gmail.com>",
+		To:      []string{"Jordan Wright <jmwright798@gmail.com>"},
+		Subject: "Test Subject",
 		Text:    []byte("This is a test email with HTML Formatting. It also has very long lines so\nthat the content must be wrapped if using quoted-printable decoding.\n"),
 		HTML:    []byte("<div dir=\"ltr\">This is a test email with <b>HTML Formatting.</b>\u00a0It also has very long lines so that the content must be wrapped if using quoted-printable decoding.</div>\n"),
 	}
-	raw := []byte(`
-	MIME-Version: 1.0
+	raw := []byte(`MIME-Version: 1.0
 Subject: Test Subject
 From: Jordan Wright <jmwright798@gmail.com>
 To: Jordan Wright <jmwright798@gmail.com>
@@ -280,31 +327,31 @@ also has very long lines so that the content must be wrapped if using quote=
 d-printable decoding.</div>
 
 --001a114fb3fc42fd6b051f834280--`)
-	e, err := NewEmailFromReader(bytes.NewReader(raw))
+	msgRead, err := NewEmailFromReader(bytes.NewReader(raw))
 	if err != nil {
 		t.Fatalf("Error creating email %s", err.Error())
 	}
-	if e.Subject != ex.Subject {
-		t.Fatalf("Incorrect subject. %#q != %#q", e.Subject, ex.Subject)
+	if msgRead.Subject != msgExpect.Subject {
+		t.Fatalf("Incorrect subject. %#q != %#q", msgRead.Subject, msgExpect.Subject)
 	}
-	if !bytes.Equal(e.Text, ex.Text) {
-		t.Fatalf("Incorrect text: %#q != %#q", e.Text, ex.Text)
+	if !bytes.Equal(msgRead.Text, msgExpect.Text) {
+		t.Fatalf("Incorrect text: %#q != %#q", msgRead.Text, msgExpect.Text)
 	}
-	if !bytes.Equal(e.HTML, ex.HTML) {
-		t.Fatalf("Incorrect HTML: %#q != %#q", e.HTML, ex.HTML)
+	if !bytes.Equal(msgRead.HTML, msgExpect.HTML) {
+		t.Fatalf("Incorrect HTML: %#q != %#q", msgRead.HTML, msgExpect.HTML)
 	}
-	if e.From != ex.From {
-		t.Fatalf("Incorrect \"From\": %#q != %#q", e.From, ex.From)
+	if msgRead.From != msgExpect.From {
+		t.Fatalf("Incorrect \"From\": %#q != %#q", msgRead.From, msgExpect.From)
 	}
-
 }
 
 func TestNonAsciiEmailFromReader(t *testing.T) {
-	ex := &Email{
-		Subject: "Test Subject",
+
+	msgExpect := &Email{
+		From:    "Mrs ValÃ©rie Dupont <valerie.dupont@example.com>",
 		To:      []string{"Anaïs <anais@example.org>"},
 		Cc:      []string{"Patrik Fältström <paf@example.com>"},
-		From:    "Mrs ValÃ©rie Dupont <valerie.dupont@example.com>",
+		Subject: "Test Subject",
 		Text:    []byte("This is a test message!"),
 	}
 	raw := []byte(`
@@ -316,32 +363,33 @@ Cc: =?ISO-8859-1?Q?Patrik_F=E4ltstr=F6m?= <paf@example.com>
 Content-type: text/plain; charset=ISO-8859-1
 
 This is a test message!`)
-	e, err := NewEmailFromReader(bytes.NewReader(raw))
+	msgRead, err := NewEmailFromReader(bytes.NewReader(raw))
 	if err != nil {
 		t.Fatalf("Error creating email %s", err.Error())
 	}
-	if e.Subject != ex.Subject {
-		t.Fatalf("Incorrect subject. %#q != %#q", e.Subject, ex.Subject)
+	if msgRead.Subject != msgExpect.Subject {
+		t.Fatalf("Incorrect subject. %#q != %#q", msgRead.Subject, msgExpect.Subject)
 	}
-	if e.From != ex.From {
-		t.Fatalf("Incorrect \"From\": %#q != %#q", e.From, ex.From)
+	if msgRead.From != msgExpect.From {
+		t.Fatalf("Incorrect \"From\": %#q != %#q", msgRead.From, msgExpect.From)
 	}
-	if e.To[0] != ex.To[0] {
-		t.Fatalf("Incorrect \"To\": %#q != %#q", e.To, ex.To)
+	if msgRead.To[0] != msgExpect.To[0] {
+		t.Fatalf("Incorrect \"To\": %#q != %#q", msgRead.To, msgExpect.To)
 	}
-	if e.Cc[0] != ex.Cc[0] {
-		t.Fatalf("Incorrect \"Cc\": %#q != %#q", e.Cc, ex.Cc)
+	if msgRead.Cc[0] != msgExpect.Cc[0] {
+		t.Fatalf("Incorrect \"Cc\": %#q != %#q", msgRead.Cc, msgExpect.Cc)
 	}
 }
 
 func TestNonMultipartEmailFromReader(t *testing.T) {
-	ex := &Email{
-		Text:    []byte("This is a test message!"),
+
+	msgExpect := &Email{
 		Subject: "Example Subject (no MIME Type)",
 		Headers: textproto.MIMEHeader{},
+		Text:    []byte("This is a test message!"),
 	}
-	ex.Headers.Add("Content-Type", "text/plain; charset=us-ascii")
-	ex.Headers.Add("Message-ID", "<foobar@example.com>")
+	msgExpect.Headers.Add("Content-Type", "text/plain; charset=us-ascii")
+	msgExpect.Headers.Add("Message-ID", "<foobar@example.com>")
 	raw := []byte(`From: "Foo Bar" <foobar@example.com>
 Content-Type: text/plain
 To: foobar@example.com
@@ -349,31 +397,31 @@ Subject: Example Subject (no MIME Type)
 Message-ID: <foobar@example.com>
 
 This is a test message!`)
-	e, err := NewEmailFromReader(bytes.NewReader(raw))
+	msgRead, err := NewEmailFromReader(bytes.NewReader(raw))
 	if err != nil {
 		t.Fatalf("Error creating email %s", err.Error())
 	}
-	if ex.Subject != e.Subject {
-		t.Errorf("Incorrect subject. %#q != %#q\n", ex.Subject, e.Subject)
+	if msgExpect.Subject != msgRead.Subject {
+		t.Errorf("Incorrect subject. %#q != %#q\n", msgExpect.Subject, msgRead.Subject)
 	}
-	if !bytes.Equal(ex.Text, e.Text) {
-		t.Errorf("Incorrect body. %#q != %#q\n", ex.Text, e.Text)
+	if !bytes.Equal(msgExpect.Text, msgRead.Text) {
+		t.Errorf("Incorrect body. %#q != %#q\n", msgExpect.Text, msgRead.Text)
 	}
-	if ex.Headers.Get("Message-ID") != e.Headers.Get("Message-ID") {
-		t.Errorf("Incorrect message ID. %#q != %#q\n", ex.Headers.Get("Message-ID"), e.Headers.Get("Message-ID"))
+	if msgExpect.Headers.Get("Message-ID") != msgRead.Headers.Get("Message-ID") {
+		t.Errorf("Incorrect message ID. %#q != %#q\n", msgExpect.Headers.Get("Message-ID"), msgRead.Headers.Get("Message-ID"))
 	}
 }
 
 func TestBase64EmailFromReader(t *testing.T) {
-	ex := &Email{
-		Subject: "Test Subject",
-		To:      []string{"Jordan Wright <jmwright798@gmail.com>"},
+
+	msgExpect := &Email{
 		From:    "Jordan Wright <jmwright798@gmail.com>",
+		To:      []string{"Jordan Wright <jmwright798@gmail.com>"},
+		Subject: "Test Subject",
 		Text:    []byte("This is a test email with HTML Formatting. It also has very long lines so that the content must be wrapped if using quoted-printable decoding."),
 		HTML:    []byte("<div dir=\"ltr\">This is a test email with <b>HTML Formatting.</b>\u00a0It also has very long lines so that the content must be wrapped if using quoted-printable decoding.</div>\n"),
 	}
-	raw := []byte(`
-		MIME-Version: 1.0
+	raw := []byte(`MIME-Version: 1.0
 Subject: Test Subject
 From: Jordan Wright <jmwright798@gmail.com>
 To: Jordan Wright <jmwright798@gmail.com>
@@ -396,85 +444,65 @@ also has very long lines so that the content must be wrapped if using quote=
 d-printable decoding.</div>
 
 --001a114fb3fc42fd6b051f834280--`)
-	e, err := NewEmailFromReader(bytes.NewReader(raw))
+	msgRead, err := NewEmailFromReader(bytes.NewReader(raw))
 	if err != nil {
 		t.Fatalf("Error creating email %s", err.Error())
 	}
-	if e.Subject != ex.Subject {
-		t.Fatalf("Incorrect subject. %#q != %#q", e.Subject, ex.Subject)
+	if msgRead.Subject != msgExpect.Subject {
+		t.Fatalf("Incorrect subject. %#q != %#q", msgRead.Subject, msgExpect.Subject)
 	}
-	if !bytes.Equal(e.Text, ex.Text) {
-		t.Fatalf("Incorrect text: %#q != %#q", e.Text, ex.Text)
+	if !bytes.Equal(msgRead.Text, msgExpect.Text) {
+		t.Fatalf("Incorrect text: %#q != %#q", msgRead.Text, msgExpect.Text)
 	}
-	if !bytes.Equal(e.HTML, ex.HTML) {
-		t.Fatalf("Incorrect HTML: %#q != %#q", e.HTML, ex.HTML)
+	if !bytes.Equal(msgRead.HTML, msgExpect.HTML) {
+		t.Fatalf("Incorrect HTML: %#q != %#q", msgRead.HTML, msgExpect.HTML)
 	}
-	if e.From != ex.From {
-		t.Fatalf("Incorrect \"From\": %#q != %#q", e.From, ex.From)
+	if msgRead.From != msgExpect.From {
+		t.Fatalf("Incorrect \"From\": %#q != %#q", msgRead.From, msgExpect.From)
 	}
 }
 
 func TestSend(t *testing.T) {
 
-	type TestClientCfg struct {
-		SMTPClientConfig
-		From string
-	}
-
-	type testSettings struct {
-		To       string
-		Subject  string
-		Body     string
-		Accounts map[string]TestClientCfg
-	}
-
-	var E error
-
+	var err error
 	defer func() {
-		if E != nil {
-			t.Error(E)
+		if err != nil {
+			t.Error(err)
 		}
 	}()
 
-	// LOAD SETTINGS
-	bsSettings, E := ioutil.ReadFile("./email_test_settings.json")
-	if E != nil {
-		return
-	}
-
-	var CFG testSettings
-	E = json.Unmarshal(bsSettings, &CFG)
-	if E != nil {
+	cfg, err := loadSettings()
+	if err != nil {
 		return
 	}
 
 	// TEST MESSAGE
-	MSG := Email{
+	msg := Email{
 		Headers: textproto.MIMEHeader{},
-		To:      []string{CFG.To},
-		Text:    []byte(CFG.Body),
+		To:      cfg.To,
+		Text:    []byte(cfg.Body),
 	}
 
 	// TRY SENDING ON EACH GIVEN ACCOUNT
-	for LBL, ACCT := range CFG.Accounts {
+	for szAcctLbl, oAcct := range cfg.Accounts {
 
-		t.Log("TestSend: " + LBL)
+		t.Log("TestSend: " + szAcctLbl)
 
-		MSG.From = ACCT.From
-		MSG.Subject = fmt.Sprintf("%s - %d", CFG.Subject, 1)
+		msg.From = oAcct.From
+		msg.Subject = fmt.Sprintf("%s - %d", cfg.Subject, 1)
 
-		MSG2 := MSG
-		MSG2.Subject = fmt.Sprintf("%s - %d", CFG.Subject, 2)
+		msg2 := msg
+		msg2.Subject = fmt.Sprintf("%s - %d", cfg.Subject, 2)
 
 		// TEST SENDING MULTIPLE MESSAGES INSIDE SINGLE SMTP SESSION
-		ACCT.SMTPLog = "-"
-		ACCT.TimeoutMsec = 7000
-		E = ACCT.SimpleSend(&MSG, &MSG2)
-		if E != nil {
+		oAcct.SMTPLog = "-"
+		oAcct.TimeoutMsec = 7000
+		err = oAcct.SimpleSend(&msg, &msg2)
+		if err != nil {
 			return
 		}
 
-		t.Log("TestSend: " + LBL + " - SUCCESS!")
+		t.Log("TestSend: " + szAcctLbl + " - SUCCESS!")
 	}
 }
 
@@ -586,11 +614,10 @@ func Test_quotedPrintDecode(t *testing.T) {
 		"There are some wacky parts like =, and this input assumes UNIX line breaks so\r\n" +
 		"it can come out a little weird.  Also, we need to support unicode so here's a fish: 🐟\r\n")
 	qp := quotedprintable.NewReader(bytes.NewReader(text))
-	got, err := ioutil.ReadAll(qp)
+	got, err := io.ReadAll(qp)
 	if err != nil {
 		t.Fatal("quotePrintDecode: ", err)
 	}
-
 	if !bytes.Equal(got, expected) {
 		t.Errorf("quotedPrintDecode generated incorrect results: %#q != %#q", got, expected)
 	}
@@ -603,7 +630,7 @@ func Benchmark_base64Wrap(b *testing.B) {
 		panic(err)
 	}
 	for i := 0; i <= b.N; i++ {
-		base64Wrap(ioutil.Discard, file)
+		base64Wrap(io.Discard, file)
 	}
 }
 

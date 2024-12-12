@@ -1,5 +1,5 @@
 {
-	"To":      "Test Recipient Here <me@test.com>",
+	"To":      ["Test Recipient Here <me@test.com>"],
 	"Subject": "email.v2: Test Message",
 	"Body":    "Text Body is, of course, supported!\n",
 	"Accounts": {

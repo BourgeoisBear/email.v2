@@ -36,6 +36,7 @@ type Attachment struct {
 	Content  []byte
 }
 
+// TODO: multiple bodies
 // Email defines an SMTP message.
 type Email struct {
 	ReplyTo     []string
