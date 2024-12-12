@@ -16,7 +16,8 @@ import (
 )
 
 /*
-Implements the Simple Mail Transfer Protocol as defined in RFC 5321.
+Client implements the Simple Mail Transfer Protocol as defined in RFC 5321.
+
 It also implements the following extensions:
 
 	8BITMIME  RFC 1652
@@ -304,8 +305,10 @@ func validateLine(line string) error {
 	return nil
 }
 
-// TLS config recommendations per "So you want to expose Go on the Internet":
-// https://blog.cloudflare.com/exposing-go-on-the-internet/
+/*
+TLSConfig implements recommendations per "So you want to expose Go on the
+Internet" at: https://blog.cloudflare.com/exposing-go-on-the-internet/.
+*/
 func TLSConfig(hostName string) *tls.Config {
 
 	return &tls.Config{
@@ -377,6 +380,7 @@ func (c *Client) Send(e *Email) error {
 	return errors.Join(E, w.Close())
 }
 
+// IsTLS returns whether the underlying connection is a tls.Conn.
 func (c *Client) IsTLS() bool {
 
 	if c.conn != nil {

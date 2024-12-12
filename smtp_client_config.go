@@ -13,40 +13,42 @@ import (
 	"os"
 )
 
+// SMTPClientMode is the encryption mode to be used by the SMTP client
 type SMTPClientMode uint8
 
 const (
-	ModeUNENCRYPTED SMTPClientMode = 0
-	ModeSTARTTLS    SMTPClientMode = 1
-	ModeFORCETLS    SMTPClientMode = 2
+	// ModeUNENCRYPTED = no encryption
+	ModeUNENCRYPTED SMTPClientMode = iota
+	// ModeSTARTTLS = STARTTLS negotiation
+	ModeSTARTTLS
+	// ModeFORCETLS = FORCED TLS
+	ModeFORCETLS
 )
 
-func (MODE *SMTPClientMode) UnmarshalJSON(V []byte) (E error) {
+// UnmarshalJSON decodes a string into an SMTPClientConfig value.
+func (mode *SMTPClientMode) UnmarshalJSON(val []byte) error {
 
-	var STR string
-
-	E = json.Unmarshal(V, &STR)
+	var szStr string
+	E := json.Unmarshal(val, &szStr)
 	if E != nil {
-		return
+		return E
 	}
 
-	STR = strings.ToUpper(strings.TrimSpace(STR))
-
-	switch STR {
-
+	szStr = strings.ToUpper(strings.TrimSpace(szStr))
+	switch szStr {
 	case "UNENCRYPTED":
-		*MODE = ModeUNENCRYPTED
+		*mode = ModeUNENCRYPTED
 	case "STARTTLS":
-		*MODE = ModeSTARTTLS
+		*mode = ModeSTARTTLS
 	case "FORCETLS":
-		*MODE = ModeFORCETLS
+		*mode = ModeFORCETLS
 	default:
-		E = ErrInvalidSMTPMode
+		return ErrInvalidSMTPMode
 	}
-
-	return
+	return nil
 }
 
+// SMTPClientConfig holds parameters for connecting to an SMTP server.
 type SMTPClientConfig struct {
 	Server      string
 	Port        uint16
@@ -59,6 +61,9 @@ type SMTPClientConfig struct {
 }
 
 /*
+SimpleSend is a way to quickly connect to an SMTP server, send multiple
+messages, then disconnect.
+
 Example
 
 	oCfg := SMTPClientConfig{
@@ -79,34 +84,34 @@ Example
 	E := oCfg.SimpleSend(oEmail)
 	if E != nil { return E }
 */
-func (CFG SMTPClientConfig) SimpleSend(MSG ...*Email) (E error) {
+func (pCfg SMTPClientConfig) SimpleSend(sMsgs ...*Email) error {
 
-	iAuth := LoginAuth(CFG.Username, CFG.Password)
-	pTLSCfg := TLSConfig(CFG.Server)
-	DIAL_ADDR := fmt.Sprintf("%s:%d", CFG.Server, CFG.Port)
+	iAuth := LoginAuth(pCfg.Username, pCfg.Password)
+	pTLSCfg := TLSConfig(pCfg.Server)
+	dialAddr := fmt.Sprintf("%s:%d", pCfg.Server, pCfg.Port)
 
-	if len(CFG.Proto) == 0 {
-		CFG.Proto = "tcp"
+	if len(pCfg.Proto) == 0 {
+		pCfg.Proto = "tcp"
 	}
 
 	// FOR DIAL/IO TIMEOUTS
-	TIMEOUT_DURATION := time.Millisecond * time.Duration(CFG.TimeoutMsec)
+	dTimeout := time.Millisecond * time.Duration(pCfg.TimeoutMsec)
 	pDialer := &net.Dialer{
-		Timeout:   TIMEOUT_DURATION,
+		Timeout:   dTimeout,
 		KeepAlive: -1, // disabled
 	}
 
 	var iConn net.Conn
-	var pTLSCfgClient *tls.Config = nil
+	var pTLSCfgClient *tls.Config
+	var E error
 
-	switch CFG.Mode {
+	switch pCfg.Mode {
 
 	case ModeSTARTTLS:
 
 		// [1]: open an unencrypted network connection
-		iConn, E = pDialer.Dial(CFG.Proto, DIAL_ADDR)
-		if E != nil {
-			return
+		if iConn, E = pDialer.Dial(pCfg.Proto, dialAddr); E != nil {
+			return E
 		}
 
 		// negotiate TLS in SMTP session
@@ -115,77 +120,70 @@ func (CFG SMTPClientConfig) SimpleSend(MSG ...*Email) (E error) {
 	case ModeFORCETLS:
 
 		// [1]: open a TLS-secured network connection
-		iConn, E = tls.DialWithDialer(pDialer, CFG.Proto, DIAL_ADDR, pTLSCfg)
-		if E != nil {
-			return
+		if iConn, E = tls.DialWithDialer(pDialer, pCfg.Proto, dialAddr, pTLSCfg); E != nil {
+			return E
 		}
 
 	case ModeUNENCRYPTED:
 
 		// [1]: open an unencrypted network connection
-		iConn, E = pDialer.Dial(CFG.Proto, DIAL_ADDR)
-		if E != nil {
-			return
+		if iConn, E = pDialer.Dial(pCfg.Proto, dialAddr); E != nil {
+			return E
 		}
 
 	default:
 
-		E = ErrInvalidSMTPMode
-		return
+		return ErrInvalidSMTPMode
 	}
 
-	var fnTextprotoCreate CreateTextprotoConnFn = nil
+	var fnTextprotoCreate CreateTextprotoConnFn
 
 	// SMTP SESSION LOGGING
-	if len(CFG.SMTPLog) > 0 {
+	if len(pCfg.SMTPLog) > 0 {
 
-		var FILE *os.File
+		var pF *os.File
 
-		if CFG.SMTPLog == "-" {
-			FILE = os.Stdout
+		if pCfg.SMTPLog == "-" {
+			pF = os.Stdout
 		} else {
-			FILE, E = os.OpenFile(CFG.SMTPLog, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0660)
+			pF, E = os.OpenFile(pCfg.SMTPLog, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0660)
 			if E != nil {
-				return
+				return E
 			}
 		}
 
-		fnTextprotoCreate = TextprotoLogged(log.New(FILE, "", log.Ltime|log.Lmicroseconds), true)
+		fnTextprotoCreate = TextprotoLogged(log.New(pF, "", log.Ltime|log.Lmicroseconds), true)
 	}
 
 	// COMMS TIMEOUT
-	if TIMEOUT_DURATION > 0 {
-		E = iConn.SetDeadline(time.Now().Add(TIMEOUT_DURATION))
-		if E != nil {
-			return
+	if dTimeout > 0 {
+		if E = iConn.SetDeadline(time.Now().Add(dTimeout)); E != nil {
+			return E
 		}
 	}
 
 	// [2]: ESTABLISH SMTP SESSION
-	SESS, E := NewClient(iConn, iAuth, CFG.Server, pTLSCfgClient, fnTextprotoCreate)
+	pCli, E := NewClient(iConn, iAuth, pCfg.Server, pTLSCfgClient, fnTextprotoCreate)
 	if E != nil {
-		return
+		return E
 	}
 
 	// [3]: SEND MESSAGE(S)
-	for ix := range MSG {
+	for ix := range sMsgs {
 
 		// COMMS TIMEOUT
-		if TIMEOUT_DURATION > 0 {
-			E = iConn.SetDeadline(time.Now().Add(TIMEOUT_DURATION))
-			if E != nil {
-				return
+		if dTimeout > 0 {
+			if E = iConn.SetDeadline(time.Now().Add(dTimeout)); E != nil {
+				return E
 			}
 		}
 
-		E = SESS.Send(MSG[ix])
-		if E != nil {
-			return
+		if E = pCli.Send(sMsgs[ix]); E != nil {
+			return E
 		}
 	}
 
 	// [4]: CLOSE SMTP SESSION WHEN FINISHED SENDING
 	// NOTE: this also closes the underlying network connection
-	E = SESS.Quit()
-	return
+	return pCli.Quit()
 }

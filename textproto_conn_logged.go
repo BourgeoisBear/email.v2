@@ -11,14 +11,14 @@ import (
 )
 
 const (
-	ANSI_RESET         = "\u001b[0m"
-	ANSI_COLOR_RQ_CMD  = "\u001b[38;5;11m" // yellow
-	ANSI_COLOR_RQ_BODY = "\u001b[38;5;14m" // cyan
-	ANSI_COLOR_RSP_OK  = "\u001b[38;5;10m" // green
-	ANSI_COLOR_RSP_ERR = "\u001b[38;5;9m"  // red
+	ansiReset  = "\u001b[0m"
+	ansiRqCmd  = "\u001b[38;5;11m" // yellow
+	ansiRqBody = "\u001b[38;5;14m" // cyan
+	ansiRspOk  = "\u001b[38;5;10m" // green
+	ansiRspErr = "\u001b[38;5;9m"  // red
 
-	MODE_SEND = "C>"
-	MODE_RECV = "<S"
+	prefixModeSend = "C>"
+	prefixModeRecv = "<S"
 )
 
 // wrap lines longer than `MaxLineLength`, indents lines after the first by two spaces.
@@ -97,7 +97,7 @@ func (L *smtpLog) log(txt, mode, color string) {
 	txt = indentWrap(txt, mode+"\t")
 
 	if L.Colors {
-		txt = color + txt + ANSI_RESET
+		txt = color + txt + ansiReset
 	}
 
 	L.Println("\n" + txt)
@@ -110,7 +110,7 @@ type loggedWriteCloser struct {
 
 func (WC loggedWriteCloser) Write(p []byte) (n int, err error) {
 
-	WC.smtpLog.log(string(p), MODE_SEND, ANSI_COLOR_RQ_BODY)
+	WC.smtpLog.log(string(p), prefixModeSend, ansiRqBody)
 	return WC.WriteCloser.Write(p)
 }
 
@@ -122,7 +122,7 @@ type loggedTextProtoConn struct {
 func (TPC loggedTextProtoConn) Cmd(format string, args ...interface{}) (id uint, E error) {
 
 	txt := fmt.Sprintf(format, args...)
-	TPC.smtpLog.log(txt, MODE_SEND, ANSI_COLOR_RQ_CMD)
+	TPC.smtpLog.log(txt, prefixModeSend, ansiRqCmd)
 
 	return TPC.Conn.Cmd(format, args...)
 }
@@ -136,13 +136,13 @@ func (TPC loggedTextProtoConn) ReadResponse(expectCode int) (code int, message s
 
 	if E == nil {
 		txt = fmt.Sprintf("%d - %s", code, message)
-		color = ANSI_COLOR_RSP_OK
+		color = ansiRspOk
 	} else {
 		txt = fmt.Sprintf("%d - %v", code, E)
-		color = ANSI_COLOR_RSP_ERR
+		color = ansiRspErr
 	}
 
-	TPC.smtpLog.log(txt, MODE_RECV, color)
+	TPC.smtpLog.log(txt, prefixModeRecv, color)
 	return
 }
 
@@ -154,7 +154,7 @@ func (TPC loggedTextProtoConn) DotWriter() io.WriteCloser {
 }
 
 /*
-Can be used as a substitute CreateTextprotoConnFn to log the SMTP
+TextprotoLogged can be used as a substitute CreateTextprotoConnFn to log the SMTP
 conversation to a specified logger.
 
 Example

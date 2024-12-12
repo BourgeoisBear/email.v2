@@ -1,5 +1,6 @@
 package email
 
+// MailErr is this package's sentinel error type
 type MailErr int
 
 const (

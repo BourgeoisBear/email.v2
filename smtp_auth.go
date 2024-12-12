@@ -75,7 +75,7 @@ func (a *plainAuth) Start(server *ServerInfo) (string, []byte, error) {
 	return "PLAIN", resp, nil
 }
 
-func (a *plainAuth) Next(fromServer []byte, more bool) ([]byte, error) {
+func (a *plainAuth) Next(_ []byte, more bool) ([]byte, error) {
 	if more {
 		// We've already sent everything.
 		return nil, ErrUnexpectedServerChallenge
@@ -95,7 +95,7 @@ func CRAMMD5Auth(username, secret string) Auth {
 	return &cramMD5Auth{username, secret}
 }
 
-func (a *cramMD5Auth) Start(server *ServerInfo) (string, []byte, error) {
+func (a *cramMD5Auth) Start(_ *ServerInfo) (string, []byte, error) {
 	return "CRAM-MD5", nil, nil
 }
 
@@ -114,7 +114,7 @@ type loginAuth struct {
 }
 
 /*
-Returns an Auth interface implementing the LOGIN authentication mechanism as defined in RFC 4616.
+LoginAuth is an interface implementing the LOGIN authentication mechanism as defined in RFC 4616.
 
 NOTE: method used by Office 365 circa 2020.
 
@@ -128,14 +128,14 @@ func LoginAuth(username, password string) Auth {
 	return &loginAuth{username, password}
 }
 
-func (a *loginAuth) Start(server *ServerInfo) (string, []byte, error) {
+func (a *loginAuth) Start(_ *ServerInfo) (string, []byte, error) {
 	return "LOGIN", []byte(a.username), nil
 }
 
-func (a *loginAuth) Next(fromServer []byte, more bool) (toServer []byte, E error) {
+func (a *loginAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 
 	if !more {
-		return
+		return nil, nil
 	}
 
 	command := string(fromServer)
@@ -145,13 +145,11 @@ func (a *loginAuth) Next(fromServer []byte, more bool) (toServer []byte, E error
 
 	switch command {
 	case "username":
-		toServer = []byte(a.username)
+		return []byte(a.username), nil
 	case "password":
-		toServer = []byte(a.password)
+		return []byte(a.password), nil
 	default:
 		// We've already sent everything.
-		E = ErrUnexpectedServerChallenge
+		return nil, ErrUnexpectedServerChallenge
 	}
-
-	return
 }

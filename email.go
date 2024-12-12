@@ -22,8 +22,10 @@ import (
 )
 
 const (
-	MaxLineLength      = 76                             // MaxLineLength is the maximum line length per RFC 2045
-	defaultContentType = "text/plain; charset=us-ascii" // defaultContentType is the default Content-Type according to RFC 2045, section 5.2
+	// MaxLineLength is the maximum line length per RFC 2045
+	MaxLineLength = 76
+	// defaultContentType is the default Content-Type according to RFC 2045, section 5.2
+	defaultContentType = "text/plain; charset=us-ascii"
 )
 
 // Attachment is a struct representing an email attachment.
@@ -34,6 +36,7 @@ type Attachment struct {
 	Content  []byte
 }
 
+// Email defines an SMTP message.
 type Email struct {
 	ReplyTo     []string
 	From        string
@@ -49,7 +52,7 @@ type Email struct {
 	ReadReceipt []string
 }
 
-// Create and initialize an new message struct.
+// NewEmail creates and initializes a new message struct.
 func NewEmail() *Email {
 	return &Email{Headers: textproto.MIMEHeader{}}
 }
@@ -68,8 +71,11 @@ func (tr trimReader) Read(buf []byte) (int, error) {
 	return n, err
 }
 
-// Reads a stream of bytes from an io.Reader, and returns an email struct containing the parsed data.
-// This function expects the data in RFC 5322 format.
+/*
+NewEmailFromReader reads a stream of bytes from an io.Reader, and returns an
+email struct containing the parsed data.
+This function expects the data in RFC 5322 format.
+*/
 func NewEmailFromReader(r io.Reader) (*Email, error) {
 	e := NewEmail()
 	s := trimReader{rd: r}
@@ -171,11 +177,13 @@ func decodePart(iRdr io.Reader, mHdr textproto.MIMEHeader) (Part, error) {
 }
 
 /*
-parseMIMEParts will recursively walk a MIME entity and return a []mime.Part
-containing each (flattened) mime.Part found. It is important to note that there
-are no limits to the number of recursions, so be careful when parsing unknown
-MIME structures!
+ParseMIMEParts will recursively walk a MIME entity and return a []mime.Part
+containing each (flattened) mime.Part found.
+
+It is important to note that there are no limits to the number of recursions,
+so be careful when parsing unknown MIME structures!
 */
+// TODO: cap recursions
 func ParseMIMEParts(iRdr io.Reader, mHdr textproto.MIMEHeader) ([]Part, error) {
 
 	// If no content type is given, set it to the default
@@ -243,7 +251,7 @@ func ParseMIMEParts(iRdr io.Reader, mHdr textproto.MIMEHeader) ([]Part, error) {
 	return ps, nil
 }
 
-// Attaches content from an io.Reader to the email.
+// Attach attaches content from an io.Reader to the email.
 // The function will return the created Attachment for reference.
 func (e *Email) Attach(r io.Reader, filename string, contentType string) (*Attachment, error) {
 	var buffer bytes.Buffer
@@ -267,10 +275,13 @@ func (e *Email) Attach(r io.Reader, filename string, contentType string) (*Attac
 	return at, nil
 }
 
-// Attaches content to the email via filesystem.
-// It attempts to open the file referenced by filename and, if successful, creates an Attachment.
-// This Attachment is then appended to the slice of Email.Attachments.
-// The function will then return the Attachment for reference.
+/*
+AttachFile attaches content to the email via filesystem.
+It attempts to open the file referenced by filename and, if successful, creates
+an Attachment.
+This Attachment is then appended to the slice of Email.Attachments.
+The function will then return the Attachment for reference.
+*/
 func (e *Email) AttachFile(filename string) (*Attachment, error) {
 	f, err := os.Open(filename)
 	if err != nil {
@@ -355,7 +366,10 @@ func writeMessage(buff io.Writer, msg []byte, multipart bool, mediaType string, 
 	return qp.Close()
 }
 
-// Converts the Email object to a []byte representation--including all needed MIMEHeaders, boundaries, etc.
+/*
+Bytes converts the Email object to a []byte representation--including all
+needed MIMEHeaders, boundaries, etc.
+*/
 func (e *Email) Bytes() ([]byte, error) {
 	// TODO: better guess buffer size
 	buff := bytes.NewBuffer(make([]byte, 0, 4096))
@@ -514,12 +528,14 @@ func generateMessageID() (string, error) {
 	return msgid, nil
 }
 
-// Select and parse an SMTP envelope sender address.
-// Choose Email.Sender if set, or fallback to Email.From.
-func (MSG *Email) ParseSender() (mail.Address, error) {
-	addrParse := MSG.From
-	if len(MSG.Sender) > 0 {
-		addrParse = MSG.Sender
+/*
+ParseSender selects and parses an SMTP envelope sender address.
+Choose Email.Sender if set, or fallback to Email.From.
+*/
+func (e *Email) ParseSender() (mail.Address, error) {
+	addrParse := e.From
+	if len(e.Sender) > 0 {
+		addrParse = e.Sender
 	}
 	addr, err := mail.ParseAddress(addrParse)
 	if err != nil {
@@ -528,7 +544,10 @@ func (MSG *Email) ParseSender() (mail.Address, error) {
 	return *addr, nil
 }
 
-// Returns slice of To, Cc, and Bcc fields, each parsed with mail.ParseAddress().
+/*
+ParseToFromAddrs returns a slice of To, Cc, and Bcc fields--each parsed with
+mail.ParseAddress().
+*/
 func (e *Email) ParseToFromAddrs() ([]*mail.Address, error) {
 
 	// Check to make sure there is at least one "from" address
@@ -539,10 +558,10 @@ func (e *Email) ParseToFromAddrs() ([]*mail.Address, error) {
 	// Merge the To, Cc, and Bcc fields
 	sAddr := make([]*mail.Address, 0, len(e.To)+len(e.Cc)+len(e.Bcc))
 
-	for _, addr_list := range [][]string{e.To, e.Cc, e.Bcc} {
-		for _, addr_txt := range addr_list {
+	for _, addrList := range [][]string{e.To, e.Cc, e.Bcc} {
+		for _, addrTxt := range addrList {
 
-			A, E := mail.ParseAddress(addr_txt)
+			A, E := mail.ParseAddress(addrTxt)
 			if E != nil {
 				return nil, E
 			}

@@ -1,5 +1,5 @@
 /*
-Yet another SMTP client!
+Package email is yet another SMTP client!
 
 Simple Usage
 

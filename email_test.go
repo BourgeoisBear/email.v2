@@ -421,7 +421,7 @@ func TestSend(t *testing.T) {
 		From string
 	}
 
-	type TEST_SETTINGS struct {
+	type testSettings struct {
 		To       string
 		Subject  string
 		Body     string
@@ -442,7 +442,7 @@ func TestSend(t *testing.T) {
 		return
 	}
 
-	var CFG TEST_SETTINGS
+	var CFG testSettings
 	E = json.Unmarshal(bsSettings, &CFG)
 	if E != nil {
 		return
