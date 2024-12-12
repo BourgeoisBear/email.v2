@@ -98,12 +98,12 @@ func NewEmailFromReader(r io.Reader) (*Email, error) {
 	for h, v := range hdrs {
 		switch h {
 		case "Subject":
-			if tmp := decodeHdr(v[0]); len(tmp) > 0 {
+			if tmp := decodeHdr(hdrs.Get(h)); len(tmp) > 0 {
 				e.Subject = tmp
 			}
 			delete(hdrs, h)
 		case "From":
-			if tmp := decodeHdr(v[0]); len(tmp) > 0 {
+			if tmp := decodeHdr(hdrs.Get(h)); len(tmp) > 0 {
 				e.From = tmp
 			}
 			delete(hdrs, h)
@@ -117,14 +117,14 @@ func NewEmailFromReader(r io.Reader) (*Email, error) {
 		case "Cc":
 			for _, cc := range v {
 				if tmp := decodeHdr(cc); len(tmp) > 0 {
-					e.Cc = append(e.To, tmp)
+					e.Cc = append(e.Cc, tmp)
 				}
 			}
 			delete(hdrs, h)
 		case "Bcc":
 			for _, bcc := range v {
 				if tmp := decodeHdr(bcc); len(tmp) > 0 {
-					e.Bcc = append(e.To, tmp)
+					e.Bcc = append(e.Bcc, tmp)
 				}
 			}
 			delete(hdrs, h)

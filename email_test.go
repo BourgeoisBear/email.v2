@@ -478,11 +478,6 @@ func TestSend(t *testing.T) {
 	}
 }
 
-func ExampleAttach() {
-	e := NewEmail()
-	e.AttachFile("test.txt")
-}
-
 func Test_base64Wrap(t *testing.T) {
 	file := "I'm a file long enough to force the function to wrap a\n" +
 		"couple of lines, but I stop short of the end of one line and\n" +
