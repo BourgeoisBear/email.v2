@@ -7,7 +7,6 @@ package email
 import (
 	"crypto/tls"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -16,12 +15,14 @@ import (
 )
 
 /*
-	Implements the Simple Mail Transfer Protocol as defined in RFC 5321.
-	It also implements the following extensions:
-		8BITMIME  RFC 1652
-		AUTH      RFC 2554
-		STARTTLS  RFC 3207
-	Additional extensions may be handled by clients.
+Implements the Simple Mail Transfer Protocol as defined in RFC 5321.
+It also implements the following extensions:
+
+	8BITMIME  RFC 1652
+	AUTH      RFC 2554
+	STARTTLS  RFC 3207
+
+Additional extensions may be handled by clients.
 */
 type Client struct {
 	// This is the TextProtoConn interface used by the Client.
@@ -41,7 +42,7 @@ type Client struct {
 	ext map[string]string
 
 	// supported auth mechanisms
-	auth       []string
+	auth []string
 
 	localName  string // the name to use in HELO/EHLO
 	didHello   bool   // whether we've said HELO/EHLO
@@ -68,14 +69,14 @@ func (c *Client) hello() error {
 // Hello sends a HELO or EHLO to the server as the given host name.
 // Calling this method is only necessary if the client needs control
 // over the host name used. The client will introduce itself as "localhost"
-// automatically otherwise. If Hello is called, it must be called before
+// automatically otherwise. If HELO is called, it must be called before
 // any of the other methods.
 func (c *Client) Hello(localName string) error {
 	if err := validateLine(localName); err != nil {
 		return err
 	}
 	if c.didHello {
-		return errors.New("smtp: Hello called after other methods")
+		return ErrLateHELO
 	}
 	c.localName = localName
 	return c.hello()
@@ -297,7 +298,7 @@ func (c *Client) Quit() error {
 // validateLine checks to see if a line has CR or LF as per RFC 5321
 func validateLine(line string) error {
 	if strings.ContainsAny(line, "\n\r") {
-		return errors.New("smtp: A line must not contain CR or LF")
+		return ErrHasCRLF
 	}
 	return nil
 }
@@ -394,28 +395,28 @@ func (c *Client) IsTLS() bool {
 }
 
 /*
-	NewClient creates an SMTP Client from an existing connection and
-	a server hostname, then attempts to establish an active SMTP session
-	with it.
+NewClient creates an SMTP Client from an existing connection and
+a server hostname, then attempts to establish an active SMTP session
+with it.
 
-	Attempts STARTTLS negotiation if `pSTARTTLSCfg` is provided, and the server provides the
-	STARTTLS extension.  Skips STARTTLS negotiation if nil.
+Attempts STARTTLS negotiation if `pSTARTTLSCfg` is provided, and the server provides the
+STARTTLS extension.  Skips STARTTLS negotiation if nil.
 
-	`fnNewTextproto` creates a TextProtoConn interface from a net.Conn interface.
-	This allows us to inject textproto.Conn wrappers that insert/remove/capture
-	SMTP traffic before it hits the wire.
+`fnNewTextproto` creates a TextProtoConn interface from a net.Conn interface.
+This allows us to inject textproto.Conn wrappers that insert/remove/capture
+SMTP traffic before it hits the wire.
 
-	If fnNewTextproto is left nil, the underlying textproto will come from
-	textproto.NewConn().
+If fnNewTextproto is left nil, the underlying textproto will come from
+textproto.NewConn().
 
-	Close with .Quit() method to end session.
+Close with .Quit() method to end session.
 */
 func NewClient(
-	iConn           net.Conn,
-	iAuth           Auth,
-	serverName      string,
-	pSTARTTLSCfg    *tls.Config,
-	fnNewTextproto  CreateTextprotoConnFn,
+	iConn net.Conn,
+	iAuth Auth,
+	serverName string,
+	pSTARTTLSCfg *tls.Config,
+	fnNewTextproto CreateTextprotoConnFn,
 ) (c *Client, E error) {
 
 	if fnNewTextproto == nil {

@@ -2,7 +2,6 @@ package email
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -21,8 +20,6 @@ const (
 	ModeSTARTTLS    SMTPClientMode = 1
 	ModeFORCETLS    SMTPClientMode = 2
 )
-
-var errInvalidMode error = errors.New("Valid SMTPClientModes are: UNENCRYPTED, STARTTLS, or FORCETLS")
 
 func (MODE *SMTPClientMode) UnmarshalJSON(V []byte) (E error) {
 
@@ -44,7 +41,7 @@ func (MODE *SMTPClientMode) UnmarshalJSON(V []byte) (E error) {
 	case "FORCETLS":
 		*MODE = ModeFORCETLS
 	default:
-		E = errInvalidMode
+		E = ErrInvalidSMTPMode
 	}
 
 	return
@@ -62,7 +59,6 @@ type SMTPClientConfig struct {
 }
 
 /*
-
 Example
 
 	oCfg := SMTPClientConfig{
@@ -82,7 +78,6 @@ Example
 
 	E := oCfg.SimpleSend(oEmail)
 	if E != nil { return E }
-
 */
 func (CFG SMTPClientConfig) SimpleSend(MSG ...*Email) (E error) {
 
@@ -135,7 +130,7 @@ func (CFG SMTPClientConfig) SimpleSend(MSG ...*Email) (E error) {
 
 	default:
 
-		E = errors.New("Invalid Mode for SimpleSend()")
+		E = ErrInvalidSMTPMode
 		return
 	}
 

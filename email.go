@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/base64"
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -25,13 +24,6 @@ import (
 const (
 	MaxLineLength      = 76                             // MaxLineLength is the maximum line length per RFC 2045
 	defaultContentType = "text/plain; charset=us-ascii" // defaultContentType is the default Content-Type according to RFC 2045, section 5.2
-)
-
-var (
-	ErrMissingToOrFrom    = errors.New("Must specify at least one From address and one To address")
-	ErrMissingBoundary    = errors.New("No boundary found for multipart entity")
-	ErrMissingContentType = errors.New("No Content-Type found for MIME entity")
-	ErrSTARTTLSNotOffered = errors.New("STARTTLS not offered by server")
 )
 
 // Attachment is a struct representing an email attachment.

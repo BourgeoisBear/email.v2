@@ -7,7 +7,6 @@ package email
 import (
 	"crypto/hmac"
 	"crypto/md5"
-	"errors"
 	"fmt"
 	"strings"
 )
@@ -67,10 +66,10 @@ func (a *plainAuth) Start(server *ServerInfo) (string, []byte, error) {
 	// That might just be the attacker saying
 	// "it's ok, you can trust me with your password."
 	if !server.TLS && !isLocalhost(server.Name) {
-		return "", nil, errors.New("unencrypted connection")
+		return "", nil, ErrUnencryptedConn
 	}
 	if server.Name != a.host {
-		return "", nil, errors.New("wrong host name")
+		return "", nil, ErrWrongHostname
 	}
 	resp := []byte(a.identity + "\x00" + a.username + "\x00" + a.password)
 	return "PLAIN", resp, nil
@@ -79,7 +78,7 @@ func (a *plainAuth) Start(server *ServerInfo) (string, []byte, error) {
 func (a *plainAuth) Next(fromServer []byte, more bool) ([]byte, error) {
 	if more {
 		// We've already sent everything.
-		return nil, errors.New("unexpected server challenge")
+		return nil, ErrUnexpectedServerChallenge
 	}
 	return nil, nil
 }
@@ -115,15 +114,15 @@ type loginAuth struct {
 }
 
 /*
-	Returns an Auth interface implementing the LOGIN authentication mechanism as defined in RFC 4616.
+Returns an Auth interface implementing the LOGIN authentication mechanism as defined in RFC 4616.
 
-	NOTE: method used by Office 365 circa 2020.
+NOTE: method used by Office 365 circa 2020.
 
-	NOTE: pieced together from:
+NOTE: pieced together from:
 
-		- https://github.com/go-gomail/gomail/issues/16#issuecomment-73672398
-		- https://github.com/golang/go/issues/9899
-		- https://gist.github.com/homme/22b457eb054a07e7b2fb
+  - https://github.com/go-gomail/gomail/issues/16#issuecomment-73672398
+  - https://github.com/golang/go/issues/9899
+  - https://gist.github.com/homme/22b457eb054a07e7b2fb
 */
 func LoginAuth(username, password string) Auth {
 	return &loginAuth{username, password}
@@ -151,7 +150,7 @@ func (a *loginAuth) Next(fromServer []byte, more bool) (toServer []byte, E error
 		toServer = []byte(a.password)
 	default:
 		// We've already sent everything.
-		E = errors.New("unexpected server challenge: " + command)
+		E = ErrUnexpectedServerChallenge
 	}
 
 	return
