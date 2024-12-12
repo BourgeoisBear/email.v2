@@ -54,15 +54,20 @@ if E != nil { return E }
 
 This is a fork of https://github.com/jordan-wright/email
 
-* ripped out connection pooling (sending via long-term connections to SMTP servers has not been reliable)
+* ripped out connection pooling (sending via long-term connections to SMTP
+  servers has not been reliable)
 * condensed multiple Send... methods into NewClient() & Send() to
-	* provide a more generic way of establishing unauthenticated, SSL, and STARTTLS connections
-	* send multiple messages from within a single established SMTP session
-	* make direct use of outside net.Conn interfaces, so as to set dial and I/O deadlines
+  * send multiple messages from within a single established SMTP session
+  * make direct use of outside net.Conn interfaces,
+    so as to set dial and I/O deadlines
+  * provide a more generic way of establishing unauthenticated,
+    SSL, and STARTTLS connections
 * added `LoginAuth` authentication interface for use with Office 365
 * added `TextprotoLogged` for full logging of SMTP traffic
 
 
 ## Testing
 
-To run unit tests, add the proper credentials to `email_test_settings.json` for accounts you choose to test with.  Examples for O365, GMAIL, & CUSTOM have been provided.
+To run unit tests, add the proper credentials to `email_test_settings.json` for
+accounts you choose to test with.  Examples for O365, GMAIL, & CUSTOM have been
+provided.
