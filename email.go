@@ -81,15 +81,15 @@ func NewEmailFromReader(r io.Reader) (*Email, error) {
 	}
 	// Set the subject, to, cc, bcc, and from
 	for h, v := range hdrs {
-		switch {
-		case h == "Subject":
+		switch h {
+		case "Subject":
 			e.Subject = v[0]
 			subj, err := (&mime.WordDecoder{}).DecodeHeader(e.Subject)
 			if err == nil && len(subj) > 0 {
 				e.Subject = subj
 			}
 			delete(hdrs, h)
-		case h == "To":
+		case "To":
 			for _, to := range v {
 				tt, err := (&mime.WordDecoder{}).DecodeHeader(to)
 				if err == nil {
@@ -99,7 +99,7 @@ func NewEmailFromReader(r io.Reader) (*Email, error) {
 				}
 			}
 			delete(hdrs, h)
-		case h == "Cc":
+		case "Cc":
 			for _, cc := range v {
 				tcc, err := (&mime.WordDecoder{}).DecodeHeader(cc)
 				if err == nil {
@@ -109,7 +109,7 @@ func NewEmailFromReader(r io.Reader) (*Email, error) {
 				}
 			}
 			delete(hdrs, h)
-		case h == "Bcc":
+		case "Bcc":
 			for _, bcc := range v {
 				tbcc, err := (&mime.WordDecoder{}).DecodeHeader(bcc)
 				if err == nil {
@@ -119,7 +119,7 @@ func NewEmailFromReader(r io.Reader) (*Email, error) {
 				}
 			}
 			delete(hdrs, h)
-		case h == "From":
+		case "From":
 			e.From = v[0]
 			fr, err := (&mime.WordDecoder{}).DecodeHeader(e.From)
 			if err == nil && len(fr) > 0 {
@@ -245,10 +245,10 @@ func ParseMIMEParts(iRdr io.Reader, mHdr textproto.MIMEHeader) ([]Part, error) {
 
 // Attaches content from an io.Reader to the email.
 // The function will return the created Attachment for reference.
-func (e *Email) Attach(r io.Reader, filename string, contentType string) (a *Attachment, E error) {
+func (e *Email) Attach(r io.Reader, filename string, contentType string) (*Attachment, error) {
 	var buffer bytes.Buffer
-	if _, E = io.Copy(&buffer, r); E != nil {
-		return
+	if _, err := io.Copy(&buffer, r); err != nil {
+		return nil, err
 	}
 	at := &Attachment{
 		Filename: filename,
@@ -271,10 +271,10 @@ func (e *Email) Attach(r io.Reader, filename string, contentType string) (a *Att
 // It attempts to open the file referenced by filename and, if successful, creates an Attachment.
 // This Attachment is then appended to the slice of Email.Attachments.
 // The function will then return the Attachment for reference.
-func (e *Email) AttachFile(filename string) (a *Attachment, E error) {
-	f, E := os.Open(filename)
-	if E != nil {
-		return
+func (e *Email) AttachFile(filename string) (*Attachment, error) {
+	f, err := os.Open(filename)
+	if err != nil {
+		return nil, err
 	}
 	defer f.Close()
 
@@ -516,21 +516,16 @@ func generateMessageID() (string, error) {
 
 // Select and parse an SMTP envelope sender address.
 // Choose Email.Sender if set, or fallback to Email.From.
-func (MSG *Email) ParseSender() (sender mail.Address, E error) {
-
-	var tmp *mail.Address
-
+func (MSG *Email) ParseSender() (*mail.Address, error) {
+	addrParse := MSG.From
 	if len(MSG.Sender) > 0 {
-		tmp, E = mail.ParseAddress(MSG.Sender)
-	} else {
-		tmp, E = mail.ParseAddress(MSG.From)
+		addrParse = MSG.Sender
 	}
-
-	if (E == nil) && (tmp != nil) {
-		sender = *tmp
+	addr, err := mail.ParseAddress(addrParse)
+	if err != nil {
+		addr = nil
 	}
-
-	return
+	return addr, err
 }
 
 // Returns slice of To, Cc, and Bcc fields, each parsed with mail.ParseAddress().
