@@ -516,16 +516,16 @@ func generateMessageID() (string, error) {
 
 // Select and parse an SMTP envelope sender address.
 // Choose Email.Sender if set, or fallback to Email.From.
-func (MSG *Email) ParseSender() (*mail.Address, error) {
+func (MSG *Email) ParseSender() (mail.Address, error) {
 	addrParse := MSG.From
 	if len(MSG.Sender) > 0 {
 		addrParse = MSG.Sender
 	}
 	addr, err := mail.ParseAddress(addrParse)
 	if err != nil {
-		addr = nil
+		return mail.Address{}, err
 	}
-	return addr, err
+	return *addr, nil
 }
 
 // Returns slice of To, Cc, and Bcc fields, each parsed with mail.ParseAddress().

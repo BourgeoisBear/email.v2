@@ -7,6 +7,7 @@ package email
 import (
 	"crypto/tls"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -335,53 +336,45 @@ func TLSConfig(hostName string) *tls.Config {
 }
 
 // Send an e-mail using the established SMTP session.
-func (c *Client) Send(e *Email) (E error) {
+func (c *Client) Send(e *Email) error {
 
 	// PARSE/VERIFY ADDRESSES
 	to, E := e.ParseToFromAddrs()
 	if E != nil {
-		return
+		return E
 	}
 
 	sender, E := e.ParseSender()
 	if E != nil {
-		return
+		return E
 	}
 
 	// MESSAGE-TO-BYTESTREAM
 	raw, E := e.Bytes()
 	if E != nil {
-		return
+		return E
 	}
 
 	// CMD: SENDER & RECIPIENTS
-	E = c.Mail(sender.Address)
-	if E != nil {
-		return
+	if E = c.Mail(sender.Address); E != nil {
+		return E
 	}
 
 	for _, addrRecip := range to {
-		E = c.Rcpt(addrRecip.Address)
-		if E != nil {
-			return
+		if E = c.Rcpt(addrRecip.Address); E != nil {
+			return E
 		}
 	}
 
 	// CMD: DATA
 	w, E := c.Data()
 	if E != nil {
-		return
+		return E
 	}
 
 	// WRITE DATA BYTES TO SERVER
 	_, E = w.Write(raw)
-	if E != nil {
-		w.Close()
-	} else {
-		E = w.Close()
-	}
-
-	return
+	return errors.Join(E, w.Close())
 }
 
 func (c *Client) IsTLS() bool {
