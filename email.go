@@ -71,6 +71,15 @@ func (tr trimReader) Read(buf []byte) (int, error) {
 	return n, err
 }
 
+func decodeHdr(val string) string {
+	var wd mime.WordDecoder
+	vdec, err := wd.DecodeHeader(val)
+	if err == nil {
+		return vdec
+	}
+	return val
+}
+
 /*
 NewEmailFromReader reads a stream of bytes from an io.Reader, and returns an
 email struct containing the parsed data.
@@ -89,47 +98,34 @@ func NewEmailFromReader(r io.Reader) (*Email, error) {
 	for h, v := range hdrs {
 		switch h {
 		case "Subject":
-			e.Subject = v[0]
-			subj, err := (&mime.WordDecoder{}).DecodeHeader(e.Subject)
-			if err == nil && len(subj) > 0 {
-				e.Subject = subj
+			if tmp := decodeHdr(v[0]); len(tmp) > 0 {
+				e.Subject = tmp
+			}
+			delete(hdrs, h)
+		case "From":
+			if tmp := decodeHdr(v[0]); len(tmp) > 0 {
+				e.From = tmp
 			}
 			delete(hdrs, h)
 		case "To":
 			for _, to := range v {
-				tt, err := (&mime.WordDecoder{}).DecodeHeader(to)
-				if err == nil {
-					e.To = append(e.To, tt)
-				} else {
-					e.To = append(e.To, to)
+				if tmp := decodeHdr(to); len(tmp) > 0 {
+					e.To = append(e.To, tmp)
 				}
 			}
 			delete(hdrs, h)
 		case "Cc":
 			for _, cc := range v {
-				tcc, err := (&mime.WordDecoder{}).DecodeHeader(cc)
-				if err == nil {
-					e.Cc = append(e.Cc, tcc)
-				} else {
-					e.Cc = append(e.Cc, cc)
+				if tmp := decodeHdr(cc); len(tmp) > 0 {
+					e.Cc = append(e.To, tmp)
 				}
 			}
 			delete(hdrs, h)
 		case "Bcc":
 			for _, bcc := range v {
-				tbcc, err := (&mime.WordDecoder{}).DecodeHeader(bcc)
-				if err == nil {
-					e.Bcc = append(e.Bcc, tbcc)
-				} else {
-					e.Bcc = append(e.Bcc, bcc)
+				if tmp := decodeHdr(bcc); len(tmp) > 0 {
+					e.Bcc = append(e.To, tmp)
 				}
-			}
-			delete(hdrs, h)
-		case "From":
-			e.From = v[0]
-			fr, err := (&mime.WordDecoder{}).DecodeHeader(e.From)
-			if err == nil && len(fr) > 0 {
-				e.From = fr
 			}
 			delete(hdrs, h)
 		}
