@@ -1,6 +1,4 @@
-
 /*
-
 Yet another SMTP client!
 
 Simple Usage
@@ -26,6 +24,5 @@ Simple Usage
 Advanced Usage
 
 	See implementation of SMTPClientConfig.SimpleSend()
-
 */
 package email

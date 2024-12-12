@@ -3,8 +3,8 @@ package email
 import (
 	"testing"
 
-	"fmt"
 	"encoding/json"
+	"fmt"
 
 	"bytes"
 	"io"
@@ -438,11 +438,15 @@ func TestSend(t *testing.T) {
 
 	// LOAD SETTINGS
 	bsSettings, E := ioutil.ReadFile("./email_test_settings.json")
-	if E != nil { return }
+	if E != nil {
+		return
+	}
 
 	var CFG TEST_SETTINGS
 	E = json.Unmarshal(bsSettings, &CFG)
-	if E != nil { return }
+	if E != nil {
+		return
+	}
 
 	// TEST MESSAGE
 	MSG := Email{
@@ -466,7 +470,9 @@ func TestSend(t *testing.T) {
 		ACCT.SMTPLog = "-"
 		ACCT.TimeoutMsec = 7000
 		E = ACCT.SimpleSend(&MSG, &MSG2)
-		if E != nil { return }
+		if E != nil {
+			return
+		}
 
 		t.Log("TestSend: " + LBL + " - SUCCESS!")
 	}

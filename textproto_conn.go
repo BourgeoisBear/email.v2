@@ -7,11 +7,11 @@ import (
 )
 
 /*
-	This interface implements all textproto actions used by the SMTP Client.
+This interface implements all textproto actions used by the SMTP Client.
 
-	Communication hits textproto before crypto and the wire, so this is useful
-	for inserting/removing/capturing commands before they are encrypted and
-	sent down the wire.
+Communication hits textproto before crypto and the wire, so this is useful
+for inserting/removing/capturing commands before they are encrypted and
+sent down the wire.
 */
 type TextProtoConn interface {
 	StartResponse(id uint)

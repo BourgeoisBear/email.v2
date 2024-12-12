@@ -1,21 +1,21 @@
 package email
 
 import (
-	"io"
 	"fmt"
+	"io"
 	"log"
 	"net"
+	"net/textproto"
 	"strings"
 	"unicode/utf8"
-	"net/textproto"
 )
 
 const (
-	ANSI_RESET          = "\u001b[0m"
-	ANSI_COLOR_RQ_CMD   = "\u001b[38;5;11m" // yellow
-	ANSI_COLOR_RQ_BODY  = "\u001b[38;5;14m" // cyan
-	ANSI_COLOR_RSP_OK   = "\u001b[38;5;10m" // green
-	ANSI_COLOR_RSP_ERR  = "\u001b[38;5;9m"  // red
+	ANSI_RESET         = "\u001b[0m"
+	ANSI_COLOR_RQ_CMD  = "\u001b[38;5;11m" // yellow
+	ANSI_COLOR_RQ_BODY = "\u001b[38;5;14m" // cyan
+	ANSI_COLOR_RSP_OK  = "\u001b[38;5;10m" // green
+	ANSI_COLOR_RSP_ERR = "\u001b[38;5;9m"  // red
 
 	MODE_SEND = "C>"
 	MODE_RECV = "<S"
@@ -29,14 +29,16 @@ func wrapLong(line string) (parts []string) {
 
 	commit := func() {
 
-		if nLen == 0 { return }
+		if nLen == 0 {
+			return
+		}
 
 		var indent string
 		if len(parts) > 0 {
 			indent = "  "
 		}
 
-		parts = append(parts, indent + strings.Join(tmp, " "))
+		parts = append(parts, indent+strings.Join(tmp, " "))
 		tmp = []string{}
 		nLen = 0
 	}
@@ -50,7 +52,7 @@ func wrapLong(line string) (parts []string) {
 		}
 
 		tmp = append(tmp, s)
-		nLen += (wLen+1)
+		nLen += (wLen + 1)
 	}
 
 	words := strings.Split(line, " ")
@@ -82,7 +84,7 @@ func indentWrap(txt, indent string) string {
 		}
 	}
 
-	return indent + strings.Join(parts, "\n" + indent)
+	return indent + strings.Join(parts, "\n"+indent)
 }
 
 type smtpLog struct {
@@ -92,7 +94,7 @@ type smtpLog struct {
 
 func (L *smtpLog) log(txt, mode, color string) {
 
-	txt = indentWrap(txt, mode + "\t")
+	txt = indentWrap(txt, mode+"\t")
 
 	if L.Colors {
 		txt = color + txt + ANSI_RESET
@@ -129,7 +131,7 @@ func (TPC loggedTextProtoConn) ReadResponse(expectCode int) (code int, message s
 
 	code, message, E = TPC.Conn.ReadResponse(expectCode)
 
-	var txt   string
+	var txt string
 	var color string
 
 	if E == nil {
@@ -152,35 +154,35 @@ func (TPC loggedTextProtoConn) DotWriter() io.WriteCloser {
 }
 
 /*
-	Can be used as a substitute CreateTextprotoConnFn to log the SMTP
-	conversation to a specified logger.
+Can be used as a substitute CreateTextprotoConnFn to log the SMTP
+conversation to a specified logger.
 
-	Example
+Example
 
-		// create target logger
-		pLog := log.New(os.Stdout, "", log.Ltime | log.Lmicroseconds)
+	// create target logger
+	pLog := log.New(os.Stdout, "", log.Ltime | log.Lmicroseconds)
 
-		// establilsh connection to server
-		HOST := "smtp.office365.com"
-		iConn, _ = net.Dial("tcp4", HOST + ":587",)
+	// establilsh connection to server
+	HOST := "smtp.office365.com"
+	iConn, _ = net.Dial("tcp4", HOST + ":587",)
 
-		// create new session
-		email.NewClient(
-			iConn,
-			email.LoginAuth("user name", "password"),
-			HOST,
-			email.TLSConfig(HOST),
-			email.TextprotoLogged(pLog, true),   // true for ANSI colors, false for no colors
-		)
+	// create new session
+	email.NewClient(
+		iConn,
+		email.LoginAuth("user name", "password"),
+		HOST,
+		email.TLSConfig(HOST),
+		email.TextprotoLogged(pLog, true),   // true for ANSI colors, false for no colors
+	)
 */
 func TextprotoLogged(pLog *log.Logger, bColors bool) CreateTextprotoConnFn {
 
 	return func(iConn net.Conn) TextProtoConn {
 		return loggedTextProtoConn{
-			Conn:    textproto.NewConn(iConn),
+			Conn: textproto.NewConn(iConn),
 			smtpLog: smtpLog{
-				Logger:  pLog,
-				Colors:  bColors,
+				Logger: pLog,
+				Colors: bColors,
 			},
 		}
 	}
