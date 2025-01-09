@@ -3,6 +3,7 @@
 *.a
 *.so
 *.sublime-workspace
+*.vim
 
 # Folders
 _obj

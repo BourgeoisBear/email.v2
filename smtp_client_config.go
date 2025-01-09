@@ -58,6 +58,97 @@ type SMTPClientConfig struct {
 	TimeoutMsec uint32
 	Proto       string // dial protocol: `tcp`, `tcp4`, or `tcp6`; defaults to `tcp`
 	SMTPLog     string // path to SMTP log: complete filepath, "-" for STDOUT, or empty to disable SMTP logging
+	KeepAlive   net.KeepAliveConfig
+}
+
+// Dial to an SMTP server & establish an SMTP session per settings
+// in SMTPClientConfig.
+func (cfg SMTPClientConfig) Dial() (*Client, error) {
+
+	iAuth := LoginAuth(cfg.Username, cfg.Password)
+	pTLSCfg := TLSConfig(cfg.Server)
+	dialAddr := fmt.Sprintf("%s:%d", cfg.Server, cfg.Port)
+
+	if len(cfg.Proto) == 0 {
+		cfg.Proto = "tcp"
+	}
+
+	// FOR DIAL/IO TIMEOUTS
+	dTimeout := time.Millisecond * time.Duration(cfg.TimeoutMsec)
+	pDialer := &net.Dialer{
+		Timeout:         dTimeout,
+		KeepAlive:       -1,
+		KeepAliveConfig: cfg.KeepAlive,
+	}
+
+	var iConn net.Conn
+	var pTLSCfgClient *tls.Config
+	var err error
+
+	switch cfg.Mode {
+
+	case ModeSTARTTLS:
+
+		// [1]: open an unencrypted network connection
+		if iConn, err = pDialer.Dial(cfg.Proto, dialAddr); err != nil {
+			return nil, err
+		}
+
+		// negotiate TLS in SMTP session
+		pTLSCfgClient = pTLSCfg
+
+	case ModeFORCETLS:
+
+		// [1]: open a TLS-secured network connection
+		if iConn, err = tls.DialWithDialer(pDialer, cfg.Proto, dialAddr, pTLSCfg); err != nil {
+			return nil, err
+		}
+
+	case ModeUNENCRYPTED:
+
+		// [1]: open an unencrypted network connection
+		if iConn, err = pDialer.Dial(cfg.Proto, dialAddr); err != nil {
+			return nil, err
+		}
+
+	default:
+
+		return nil, ErrInvalidSMTPMode
+	}
+
+	var fnTextprotoCreate CreateTextprotoConnFn
+
+	// SMTP SESSION LOGGING
+	if len(cfg.SMTPLog) > 0 {
+
+		var pF *os.File
+
+		if cfg.SMTPLog == "-" {
+			pF = os.Stdout
+		} else {
+			pF, err = os.OpenFile(cfg.SMTPLog, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0660)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		fnTextprotoCreate = TextprotoLogged(log.New(pF, "", log.Ltime|log.Lmicroseconds), true)
+	}
+
+	// COMMS TIMEOUT
+	if dTimeout > 0 {
+		if err = iConn.SetDeadline(time.Now().Add(dTimeout)); err != nil {
+			return nil, err
+		}
+	}
+
+	// ESTABLISH SMTP SESSION
+	pCli, err := NewClient(iConn, iAuth, cfg.Server, pTLSCfgClient, fnTextprotoCreate)
+	if err != nil {
+		return nil, err
+	}
+	pCli.TimeoutMsec = cfg.TimeoutMsec
+	return pCli, nil
 }
 
 /*
@@ -66,7 +157,7 @@ messages, then disconnect.
 
 Example
 
-	oCfg := SMTPClientConfig{
+	cfg := SMTPClientConfig{
 	  Server:   "mx.test.com",
 	  Port:     587,
 	  Username: "test@test.com",
@@ -81,109 +172,23 @@ Example
 	oEmail.Subject = "Test Message"
 	oEmail.Text    = []byte("Whoomp there it is!")
 
-	E := oCfg.SimpleSend(oEmail)
+	E := cfg.SimpleSend(oEmail)
 	if E != nil { return E }
 */
-func (pCfg SMTPClientConfig) SimpleSend(sMsgs ...*Email) error {
+func (cfg SMTPClientConfig) SimpleSend(sMsgs ...*Email) error {
 
-	iAuth := LoginAuth(pCfg.Username, pCfg.Password)
-	pTLSCfg := TLSConfig(pCfg.Server)
-	dialAddr := fmt.Sprintf("%s:%d", pCfg.Server, pCfg.Port)
-
-	if len(pCfg.Proto) == 0 {
-		pCfg.Proto = "tcp"
+	pCli, err := cfg.Dial()
+	if err != nil {
+		return err
 	}
 
-	// FOR DIAL/IO TIMEOUTS
-	dTimeout := time.Millisecond * time.Duration(pCfg.TimeoutMsec)
-	pDialer := &net.Dialer{
-		Timeout:   dTimeout,
-		KeepAlive: -1, // disabled
-	}
-
-	var iConn net.Conn
-	var pTLSCfgClient *tls.Config
-	var E error
-
-	switch pCfg.Mode {
-
-	case ModeSTARTTLS:
-
-		// [1]: open an unencrypted network connection
-		if iConn, E = pDialer.Dial(pCfg.Proto, dialAddr); E != nil {
-			return E
-		}
-
-		// negotiate TLS in SMTP session
-		pTLSCfgClient = pTLSCfg
-
-	case ModeFORCETLS:
-
-		// [1]: open a TLS-secured network connection
-		if iConn, E = tls.DialWithDialer(pDialer, pCfg.Proto, dialAddr, pTLSCfg); E != nil {
-			return E
-		}
-
-	case ModeUNENCRYPTED:
-
-		// [1]: open an unencrypted network connection
-		if iConn, E = pDialer.Dial(pCfg.Proto, dialAddr); E != nil {
-			return E
-		}
-
-	default:
-
-		return ErrInvalidSMTPMode
-	}
-
-	var fnTextprotoCreate CreateTextprotoConnFn
-
-	// SMTP SESSION LOGGING
-	if len(pCfg.SMTPLog) > 0 {
-
-		var pF *os.File
-
-		if pCfg.SMTPLog == "-" {
-			pF = os.Stdout
-		} else {
-			pF, E = os.OpenFile(pCfg.SMTPLog, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0660)
-			if E != nil {
-				return E
-			}
-		}
-
-		fnTextprotoCreate = TextprotoLogged(log.New(pF, "", log.Ltime|log.Lmicroseconds), true)
-	}
-
-	// COMMS TIMEOUT
-	if dTimeout > 0 {
-		if E = iConn.SetDeadline(time.Now().Add(dTimeout)); E != nil {
-			return E
-		}
-	}
-
-	// [2]: ESTABLISH SMTP SESSION
-	pCli, E := NewClient(iConn, iAuth, pCfg.Server, pTLSCfgClient, fnTextprotoCreate)
-	if E != nil {
-		return E
-	}
-
-	// [3]: SEND MESSAGE(S)
 	for ix := range sMsgs {
-
-		// COMMS TIMEOUT
-		if dTimeout > 0 {
-			if E = iConn.SetDeadline(time.Now().Add(dTimeout)); E != nil {
-				return E
-			}
-		}
-
-		if E = pCli.Send(sMsgs[ix]); E != nil {
-			return E
+		if err = pCli.Send(sMsgs[ix]); err != nil {
+			return err
 		}
 	}
 
-	// [4]: CLOSE SMTP SESSION WHEN FINISHED SENDING
+	// CLOSE SMTP SESSION WHEN FINISHED SENDING
 	// NOTE: this also closes the underlying network connection
 	return pCli.Quit()
 }

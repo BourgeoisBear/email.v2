@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/textproto"
 	"strings"
+	"time"
 )
 
 /*
@@ -49,6 +50,8 @@ type Client struct {
 	localName  string // the name to use in HELO/EHLO
 	didHello   bool   // whether we've said HELO/EHLO
 	helloError error  // the error from the hello
+
+	TimeoutMsec uint32
 }
 
 // Close closes the connection.
@@ -356,6 +359,14 @@ func (c *Client) Send(e *Email) error {
 	raw, E := e.Bytes()
 	if E != nil {
 		return E
+	}
+
+	// COMMS TIMEOUT
+	if c.TimeoutMsec > 0 {
+		dTimeout := time.Millisecond * time.Duration(c.TimeoutMsec)
+		if E = c.conn.SetDeadline(time.Now().Add(dTimeout)); E != nil {
+			return E
+		}
 	}
 
 	// CMD: SENDER & RECIPIENTS
